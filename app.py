@@ -1032,13 +1032,21 @@ if st.session_state.get("host_auth"):
     p = st.session_state.get("phase","intro")
     st.markdown(f'<div style="background:#1a1a1a;border:1px solid #444;border-radius:8px;padding:8px 14px;margin-bottom:12px;font-size:13px;color:#fff;">🔧 <b>관리자</b> — 셀{c} | {p}</div>', unsafe_allow_html=True)
 
-# 참여 종료 버튼 (각 페이지 하단에서 호출)
+# 참여 종료 — 사이드바 버튼 (기존 유지)
+if st.session_state.get("phase") in ("pre_survey", "task", "post_survey", "consent"):
+    with st.sidebar:
+        st.markdown("---")
+        if st.button("🚪 참여 종료", key="withdraw_btn", use_container_width=True):
+            st.session_state.phase = "withdrawn"; st.rerun()
+
+# 참여 종료 — 각 페이지 하단 우측 작은 링크 (각 페이지에서 호출)
 def render_withdraw_button(key_suffix=""):
-    """각 페이지 하단에 참여 종료 버튼을 표시."""
-    st.markdown("---")
+    """페이지 하단 우측에 작은 종료 링크를 표시."""
     st.markdown("")
-    if st.button("🚪 참여를 종료합니다", key=f"withdraw_{key_suffix}", use_container_width=True):
-        st.session_state.phase = "withdrawn"; st.rerun()
+    col_left, col_right = st.columns([4, 1])
+    with col_right:
+        if st.button("연구참여 종료", key=f"withdraw_{key_suffix}", type="secondary"):
+            st.session_state.phase = "withdrawn"; st.rerun()
 
 # ── PHASE 0: 인트로 ──
 if st.session_state.phase == "intro":
@@ -1553,7 +1561,7 @@ elif st.session_state.phase == "withdrawn":
 
 궁금하신 사항이 있으시면 연구 담당자에게 문의해 주세요.
 
-- 연구담당자: 권상지 연구원
+- 연구책임자: 권상지 연구원
 - 소속: 경희대학교 경영학과, 차세대정보기술연구센터(CAITECH)
-- 이메일: aaaitaaa@khu.ac.kr
+- 이메일: obkwon@khu.ac.kr
     """)
