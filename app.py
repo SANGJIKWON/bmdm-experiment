@@ -693,6 +693,110 @@ def show_metrics_panel(metrics, title="HI"):
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ============================================================
+# 결과 데이터 매핑 (관리자 CSV + Google Sheets 공통)
+# ============================================================
+def get_korean_name(key_path):
+    key_str = str(key_path).lower()
+    if "creativity" in key_str and "fit" in key_str: return "[결과] 적합성"
+    if "creativity" in key_str and "original" in key_str: return "[결과] 독창성"
+    if "creativity" in key_str and "useful" in key_str: return "[결과] 유용성"
+    if "creativity_index" in key_str: return "[결과] 창의성 종합지수"
+    if "confidence" in key_str and "pre" in key_str: return "[실험] 사전 확신도"
+    if "confidence" in key_str and "post" in key_str: return "[실험] 사후 확신도"
+    if "confidence" in key_str and "change" in key_str: return "[분석] 확신도 변화량"
+    if "nfc1" in key_str: return "[사전_NFC1] 복잡한 문제 선호"
+    if "nfc2" in key_str: return "[사전_NFC2] 깊은 사고 선호"
+    if "nfc3" in key_str: return "[사전_NFC3] 사고 과정 즐김"
+    if "nfc_mean" in key_str: return "[사전_NFC_평균]"
+    if "task_order" in key_str: return "[시스템] 과제_수행_순서"
+    if "fixed_cycles" in key_str: return "[시스템] 고정_대화_턴수"
+    if "design" in key_str: return "[시스템] 실험_설계"
+    if "reflection" in key_str: return "[최종] 주관적 성찰 기록"
+    if "participant_id" in key_str: return "[시스템] 참가자_ID"
+    if "timestamp" in key_str: return "[시스템] 참여_일시"
+    if "cell" in key_str: return "[시스템] 배정_셀"
+    if "group" in key_str: return "[시스템] 실험집단"
+    if "task_type" in key_str: return "[시스템] 과제유형"
+    if "api_model" in key_str: return "[시스템] 사용_모델"
+    if "total_cycles" in key_str: return "[시스템] 진행된_대화_턴수"
+    if "hi_change" in key_str: return "[분석] 환각지수 감소량"
+    if "transcript" in key_str: return "[로그] 대화 전체 기록"
+    if "initial_input" in key_str: return "[과제] 최초 주장 내용"
+    if "final_title" in key_str: return "[최종] 결과물 제목"
+    if "final_reason" in key_str: return "[최종] 판단 이유"
+    if "overall_satisfaction" in key_str: return "[결과] 전체 대화 만족도"
+    if "gender" in key_str: return "[사전] 성별"
+    if "age_group" in key_str: return "[사전] 연령대"
+    if "ai_experience" in key_str: return "[사전] AI 경험"
+    if "initial_hi" in key_str:
+        if "hallucination_index" in key_str: return "[알고리즘] 초기 환각지수(HI)"
+        if "calibration_error" in key_str: return "[알고리즘_초기] 확신-근거 불일치"
+        if "affective_risk" in key_str: return "[알고리즘_초기] 정서 기반 판단"
+        if "source_risk" in key_str: return "[알고리즘_초기] 출처 모호성"
+        if "unsupported_claim" in key_str: return "[알고리즘_초기] 확신 대비 근거 부족"
+        if "inconsistency" in key_str: return "[알고리즘_초기] 비일관성"
+    if "final_hi" in key_str:
+        if "hallucination_index" in key_str: return "[알고리즘] 최종 환각지수(HI)"
+        if "calibration_error" in key_str: return "[알고리즘_최종] 확신-근거 불일치"
+        if "affective_risk" in key_str: return "[알고리즘_최종] 정서 기반 판단"
+        if "source_risk" in key_str: return "[알고리즘_최종] 출처 모호성"
+        if "unsupported_claim" in key_str: return "[알고리즘_최종] 확신 대비 근거 부족"
+        if "inconsistency" in key_str: return "[알고리즘_최종] 비일관성"
+    if "cognitive_distance" in key_str: return "[알고리즘_메타인지] 인지적 거리두기"
+    if "counterfactual" in key_str and "simulation" in key_str: return "[알고리즘_메타인지] 반사실적 사고"
+    if "epistemic_humility" in key_str: return "[알고리즘_메타인지] 지적 겸손"
+    if "reality_monitoring" in key_str: return "[알고리즘_메타인지] 현실 모니터링"
+    last_part = key_str.split('.')[-1]
+    _SURVEY_MAP = {
+        "ebr1": "[사전_근거1] 근거 중요성", "ebr2": "[사전_근거2] 데이터 기반", "ebr3": "[사전_근거3] 증거 확인", "ebr4": "[사전_근거4] 직관보다 근거", "ebr_mean": "[사전_근거_평균]",
+        "aha1": "[사전_AI환각인식1] AI 틀린 정보", "aha2": "[사전_AI환각인식2] 무조건 신뢰 안함", "aha3": "[사전_AI환각인식3] 검증 필요", "aha4": "[사전_AI환각인식4] 사실과 다른 내용", "aha_mean": "[사전_AI환각인식_평균]",
+        "oc1": "[사전_과신편향1] 이상/원칙 충성", "oc2": "[사전_과신편향2] 지지자 구분", "oc3": "[사전_과신편향3] 생각변화는 약함", "oc4": "[사전_과신편향4] 논리보다 느낌", "oc5": "[사전_과신편향5] 반대증거 무시", "oc6": "[사전_과신편향6] 내 판단 믿음", "oc_mean": "[사전_과신편향_평균]",
+        "emo1": "[사전_정서중시1] 삶 방향 영향", "emo2": "[사전_정서중시2] 삶을 흥미롭게", "emo3": "[사전_정서중시3] 느끼는것이 건강", "emo4": "[사전_정서중시4] 감정 통해 배움", "emo5": "[사전_정서중시5] 판단에 영향", "emo_mean": "[사전_정서중시_평균]",
+        "bae1": "[사후_소외1] 낯설게 바라봄", "bae2": "[사후_소외2] 떨어져서 봄", "bae3": "[사후_소외3] 비판적 검토", "bae4": "[사후_소외4] 자동적반응 멈춤", "bae_mean": "[사후] 소외효과 조작점검 평균",
+        "mc1": "[사후_메타1] 목표 부합 점검", "mc2": "[사후_메타2] 오류 인식", "mc3": "[사후_메타3] 옵션 점검", "mc4": "[사후_메타4] 타당성 자문", "mc_mean": "[사후] 메타인지(전반) 평균",
+        "sd1": "[사후_거리1] 제3자 시각", "sd2": "[사후_거리2] 거리감 유지", "sd3": "[사후_거리3] 감정/판단 분리", "sd4": "[사후_거리4] 객관적 검토", "sd5": "[사후_거리5] 일시성 인지", "sd_mean": "[사후] 메타인지(거리두기) 평균",
+        "sm1": "[사후_출처1] 출처 확인", "sm2": "[사후_출처2] 사실/추론 구분", "sm3": "[사후_출처3] 사실/상상 구별", "sm4": "[사후_출처4] 근거출처 성찰", "sm_mean": "[사후] 메타인지(출처모니터링) 평균",
+        "cf1": "[사후_반사실1] 다른 가능성", "cf2": "[사후_반사실2] 다른 정답 인지", "cf3": "[사후_반사실3] 다양한 해석", "cf4": "[사후_반사실4] 확신오류 감소", "cf_mean": "[사후] 메타인지(반사실적사고) 평균",
+        "ih1": "[사후_지적겸손1] 학습 필요성", "ih2": "[사후_지적겸손2] 오류 인정", "ih3": "[사후_지적겸손3] 수정 의향", "ih4": "[사후_지적겸손4] 경청 의지", "ih_mean": "[사후] 메타인지(지적겸손) 평균",
+        "lr1": "[사후_환각_근거부족1] 결론 인지", "lr2": "[사후_환각_근거부족2] 확신 인지", "lr3": "[사후_환각_근거부족3] 제시 미흡", "lr4": "[사후_환각_근거부족4] 설명 없음", "lr5": "[사후_환각_근거부족5] 점검 미흡", "lr_mean": "[사후] 자기보고 환각(근거부족) 평균",
+        "lf1": "[사후_환각_출처모호1] 불명확", "lf2": "[사후_환각_출처모호2] 혼동", "lf3": "[사후_환각_출처모호3] 미확인", "lf4": "[사후_환각_출처모호4] 검증 미흡", "lf_mean": "[사후] 자기보고 환각(출처모호) 평균",
+        "ah1": "[사후_환각_정서판단1] 판단 변화", "ah2": "[사후_환각_정서판단2] 선호 확신", "ah3": "[사후_환각_정서판단3] 판단 인지", "ah4": "[사후_환각_정서판단4] 기분 영향", "ah_mean": "[사후] 자기보고 환각(정서판단) 평균",
+        "ic1": "[사후_환각_비일관성1] 판단 변화", "ic2": "[사후_환각_비일관성2] 다른 결론", "ic3": "[사후_환각_비일관성3] 기준 유지", "ic4": "[사후_환각_비일관성4] 기준 변화", "ic_mean": "[사후] 자기보고 환각(비일관성) 평균",
+        "ci1": "[사후_공동창출의향1] 적극 상호작용", "ci2": "[사후_공동창출의향2] 학습 시도", "ci3": "[사후_공동창출의향3] 추가정보 제공", "ci4": "[사후_공동창출의향4] 결과 수정개선", "ci5": "[사후_공동창출의향5] 시간노력 투자", "ci6": "[사후_공동창출의향6] 공동 발전", "ci7": "[사후_공동창출의향7] 문제해결 참여", "ci_mean": "[사후] 공동창출 의향 평균",
+        "ce1": "[사후_공동창출효과1] 유용한 피드백", "ce2": "[사후_공동창출효과2] 명확한 표현", "ce3": "[사후_공동창출효과3] 방안 탐색", "ce4": "[사후_공동창출효과4] 적극 반응", "ce5": "[사후_공동창출효과5] 좋은 해결책", "ce6": "[사후_공동창출효과6] 반복 수정발전", "ce7": "[사후_공동창출효과7] 더 나은 결과", "ce_mean": "[사후] 공동창출 효과 평균"
+    }
+    if last_part in _SURVEY_MAP: return _SURVEY_MAP[last_part]
+    return f"[미확인] {last_part}"
+
+FULL_ORDERED_COLUMNS = [
+    "[시스템] 참가자_ID", "[시스템] 참여_일시", "[시스템] 배정_셀", "[시스템] 실험집단", "[시스템] 과제유형", "[시스템] 사용_모델", "[시스템] 과제_수행_순서",
+    "[사전] 성별", "[사전] 연령대", "[사전] AI 경험", "[사전_NFC_평균]", "[사전_근거_평균]", "[사전_AI환각인식_평균]", "[사전_과신편향_평균]", "[사전_정서중시_평균]",
+    "[과제] 최초 주장 내용", "[실험] 사전 확신도", "[알고리즘] 초기 환각지수(HI)",
+    "[사후] 소외효과 조작점검 평균", "[실험] 사후 확신도",
+    "[사후] 메타인지(전반) 평균", "[사후] 메타인지(거리두기) 평균", "[사후] 메타인지(출처모니터링) 평균", "[사후] 메타인지(반사실적사고) 평균", "[사후] 메타인지(지적겸손) 평균",
+    "[사후] 자기보고 환각(근거부족) 평균", "[사후] 자기보고 환각(출처모호) 평균", "[사후] 자기보고 환각(정서판단) 평균", "[사후] 자기보고 환각(비일관성) 평균",
+    "[사후] 공동창출 의향 평균", "[사후] 공동창출 효과 평균",
+    "[최종] 결과물 제목", "[최종] 판단 이유", "[최종] 주관적 성찰 기록", "[결과] 독창성", "[결과] 유용성", "[결과] 적합성", "[결과] 창의성 종합지수", "[결과] 전체 대화 만족도",
+    "[분석] 환각지수 감소량", "[분석] 확신도 변화량", "[알고리즘] 최종 환각지수(HI)",
+    "[알고리즘_초기] 확신-근거 불일치", "[알고리즘_초기] 정서 기반 판단", "[알고리즘_초기] 출처 모호성", "[알고리즘_초기] 확신 대비 근거 부족", "[알고리즘_초기] 비일관성",
+    "[알고리즘_최종] 확신-근거 불일치", "[알고리즘_최종] 정서 기반 판단", "[알고리즘_최종] 출처 모호성", "[알고리즘_최종] 확신 대비 근거 부족", "[알고리즘_최종] 비일관성",
+    "[알고리즘_메타인지] 인지적 거리두기", "[알고리즘_메타인지] 반사실적 사고", "[알고리즘_메타인지] 지적 겸손", "[알고리즘_메타인지] 현실 모니터링",
+    "[시스템] 진행된_대화_턴수", "[시스템] 고정_대화_턴수", "[시스템] 실험_설계", "[로그] 대화 전체 기록"
+]
+
+def flatten_result_full(d, prefix=""):
+    """result dict를 전체 칼럼 매핑으로 평탄화."""
+    items = {}
+    for k, v in d.items():
+        full_path = f"{prefix}{k}" if prefix else k
+        if isinstance(v, dict):
+            items.update(flatten_result_full(v, full_path + "."))
+        else:
+            mapped_key = get_korean_name(full_path)
+            items[mapped_key] = json.dumps(v, ensure_ascii=False) if isinstance(v, list) else v
+    return items
+
+# ============================================================
 # 호스트 관리 패널
 # ============================================================
 def render_host_panel():
@@ -819,136 +923,15 @@ def render_host_panel():
             # CSV 다운로드
             csv_path = "results/all_results.csv"
             if files:
-                def get_korean_name(key_path):
-                    # 소문자로 변환하여 경로 상관없이 단어(키워드)로 매핑
-                    key_str = str(key_path).lower()
-                    
-                    if "creativity" in key_str and "fit" in key_str: return "[결과] 적합성"
-                    if "creativity" in key_str and "original" in key_str: return "[결과] 독창성"
-                    if "creativity" in key_str and "useful" in key_str: return "[결과] 유용성"
-                    if "creativity_index" in key_str: return "[결과] 창의성 종합지수"
-                    if "confidence" in key_str and "pre" in key_str: return "[실험] 사전 확신도"
-                    if "confidence" in key_str and "post" in key_str: return "[실험] 사후 확신도"
-                    if "confidence" in key_str and "change" in key_str: return "[분석] 확신도 변화량"
-                    
-                    if "nfc1" in key_str: return "[사전_NFC1] 복잡한 문제 선호"
-                    if "nfc2" in key_str: return "[사전_NFC2] 깊은 사고 선호"
-                    if "nfc3" in key_str: return "[사전_NFC3] 사고 과정 즐김"
-                    if "nfc_mean" in key_str: return "[사전_NFC_평균]"
-                    
-                    if "task_order" in key_str: return "[시스템] 과제_수행_순서"
-                    if "fixed_cycles" in key_str: return "[시스템] 고정_대화_턴수"
-                    if "design" in key_str: return "[시스템] 실험_설계"
-                    if "reflection" in key_str: return "[최종] 주관적 성찰 기록"
-                    if "participant_id" in key_str: return "[시스템] 참가자_ID"
-                    if "timestamp" in key_str: return "[시스템] 참여_일시"
-                    if "cell" in key_str: return "[시스템] 배정_셀"
-                    if "group" in key_str: return "[시스템] 실험집단"
-                    if "task_type" in key_str: return "[시스템] 과제유형"
-                    if "api_model" in key_str: return "[시스템] 사용_모델"
-                    if "total_cycles" in key_str: return "[시스템] 진행된_대화_턴수"
-                    if "hi_change" in key_str: return "[분석] 환각지수 감소량"
-                    if "transcript" in key_str: return "[로그] 대화 전체 기록"
-                    if "initial_input" in key_str: return "[과제] 최초 주장 내용"
-                    if "final_title" in key_str: return "[최종] 결과물 제목"
-                    if "final_reason" in key_str: return "[최종] 판단 이유"
-                    if "overall_satisfaction" in key_str: return "[결과] 전체 대화 만족도"
-                    if "gender" in key_str: return "[사전] 성별"
-                    if "age_group" in key_str: return "[사전] 연령대"
-                    if "ai_experience" in key_str: return "[사전] AI 경험"
-
-                    if "initial_hi" in key_str:
-                        if "hallucination_index" in key_str: return "[알고리즘] 초기 환각지수(HI)"
-                        if "calibration_error" in key_str: return "[알고리즘_초기] 확신-근거 불일치"
-                        if "affective_risk" in key_str: return "[알고리즘_초기] 정서 기반 판단"
-                        if "source_risk" in key_str: return "[알고리즘_초기] 출처 모호성"
-                        if "unsupported_claim" in key_str: return "[알고리즘_초기] 확신 대비 근거 부족"
-                        if "inconsistency" in key_str: return "[알고리즘_초기] 비일관성"
-                    if "final_hi" in key_str:
-                        if "hallucination_index" in key_str: return "[알고리즘] 최종 환각지수(HI)"
-                        if "calibration_error" in key_str: return "[알고리즘_최종] 확신-근거 불일치"
-                        if "affective_risk" in key_str: return "[알고리즘_최종] 정서 기반 판단"
-                        if "source_risk" in key_str: return "[알고리즘_최종] 출처 모호성"
-                        if "unsupported_claim" in key_str: return "[알고리즘_최종] 확신 대비 근거 부족"
-                        if "inconsistency" in key_str: return "[알고리즘_최종] 비일관성"
-                    
-                    if "cognitive_distance" in key_str: return "[알고리즘_메타인지] 인지적 거리두기"
-                    if "counterfactual" in key_str and "simulation" in key_str: return "[알고리즘_메타인지] 반사실적 사고"
-                    if "epistemic_humility" in key_str: return "[알고리즘_메타인지] 지적 겸손"
-                    if "reality_monitoring" in key_str: return "[알고리즘_메타인지] 현실 모니터링"
-
-                    last_part = key_str.split('.')[-1]
-                    SURVEY_MAP = {
-                        "ebr1": "[사전_근거1] 근거 중요성", "ebr2": "[사전_근거2] 데이터 기반", "ebr3": "[사전_근거3] 증거 확인", "ebr4": "[사전_근거4] 직관보다 근거", "ebr_mean": "[사전_근거_평균]",
-                        "aha1": "[사전_AI환각인식1] AI 틀린 정보", "aha2": "[사전_AI환각인식2] 무조건 신뢰 안함", "aha3": "[사전_AI환각인식3] 검증 필요", "aha4": "[사전_AI환각인식4] 사실과 다른 내용", "aha_mean": "[사전_AI환각인식_평균]",
-                        "oc1": "[사전_과신편향1] 이상/원칙 충성", "oc2": "[사전_과신편향2] 지지자 구분", "oc3": "[사전_과신편향3] 생각변화는 약함", "oc4": "[사전_과신편향4] 논리보다 느낌", "oc5": "[사전_과신편향5] 반대증거 무시", "oc6": "[사전_과신편향6] 내 판단 믿음", "oc_mean": "[사전_과신편향_평균]",
-                        "emo1": "[사전_정서중시1] 삶 방향 영향", "emo2": "[사전_정서중시2] 삶을 흥미롭게", "emo3": "[사전_정서중시3] 느끼는것이 건강", "emo4": "[사전_정서중시4] 감정 통해 배움", "emo5": "[사전_정서중시5] 판단에 영향", "emo_mean": "[사전_정서중시_평균]",
-                        "bae1": "[사후_소외1] 낯설게 바라봄", "bae2": "[사후_소외2] 떨어져서 봄", "bae3": "[사후_소외3] 비판적 검토", "bae4": "[사후_소외4] 자동적반응 멈춤", "bae_mean": "[사후] 소외효과 조작점검 평균",
-                        "mc1": "[사후_메타1] 목표 부합 점검", "mc2": "[사후_메타2] 오류 인식", "mc3": "[사후_메타3] 옵션 점검", "mc4": "[사후_메타4] 타당성 자문", "mc_mean": "[사후] 메타인지(전반) 평균",
-                        "sd1": "[사후_거리1] 제3자 시각", "sd2": "[사후_거리2] 거리감 유지", "sd3": "[사후_거리3] 감정/판단 분리", "sd4": "[사후_거리4] 객관적 검토", "sd5": "[사후_거리5] 일시성 인지", "sd_mean": "[사후] 메타인지(거리두기) 평균",
-                        "sm1": "[사후_출처1] 출처 확인", "sm2": "[사후_출처2] 사실/추론 구분", "sm3": "[사후_출처3] 사실/상상 구별", "sm4": "[사후_출처4] 근거출처 성찰", "sm_mean": "[사후] 메타인지(출처모니터링) 평균",
-                        "cf1": "[사후_반사실1] 다른 가능성", "cf2": "[사후_반사실2] 다른 정답 인지", "cf3": "[사후_반사실3] 다양한 해석", "cf4": "[사후_반사실4] 확신오류 감소", "cf_mean": "[사후] 메타인지(반사실적사고) 평균",
-                        "ih1": "[사후_지적겸손1] 학습 필요성", "ih2": "[사후_지적겸손2] 오류 인정", "ih3": "[사후_지적겸손3] 수정 의향", "ih4": "[사후_지적겸손4] 경청 의지", "ih_mean": "[사후] 메타인지(지적겸손) 평균",
-                        "lr1": "[사후_환각_근거부족1] 결론 인지", "lr2": "[사후_환각_근거부족2] 확신 인지", "lr3": "[사후_환각_근거부족3] 제시 미흡", "lr4": "[사후_환각_근거부족4] 설명 없음", "lr5": "[사후_환각_근거부족5] 점검 미흡", "lr_mean": "[사후] 자기보고 환각(근거부족) 평균",
-                        "lf1": "[사후_환각_출처모호1] 불명확", "lf2": "[사후_환각_출처모호2] 혼동", "lf3": "[사후_환각_출처모호3] 미확인", "lf4": "[사후_환각_출처모호4] 검증 미흡", "lf_mean": "[사후] 자기보고 환각(출처모호) 평균",
-                        "ah1": "[사후_환각_정서판단1] 판단 변화", "ah2": "[사후_환각_정서판단2] 선호 확신", "ah3": "[사후_환각_정서판단3] 판단 인지", "ah4": "[사후_환각_정서판단4] 기분 영향", "ah_mean": "[사후] 자기보고 환각(정서판단) 평균",
-                        "ic1": "[사후_환각_비일관성1] 판단 변화", "ic2": "[사후_환각_비일관성2] 다른 결론", "ic3": "[사후_환각_비일관성3] 기준 유지", "ic4": "[사후_환각_비일관성4] 기준 변화", "ic_mean": "[사후] 자기보고 환각(비일관성) 평균",
-                        "ci1": "[사후_공동창출의향1] 적극 상호작용", "ci2": "[사후_공동창출의향2] 학습 시도", "ci3": "[사후_공동창출의향3] 추가정보 제공", "ci4": "[사후_공동창출의향4] 결과 수정개선", "ci5": "[사후_공동창출의향5] 시간노력 투자", "ci6": "[사후_공동창출의향6] 공동 발전", "ci7": "[사후_공동창출의향7] 문제해결 참여", "ci_mean": "[사후] 공동창출 의향 평균",
-                        "ce1": "[사후_공동창출효과1] 유용한 피드백", "ce2": "[사후_공동창출효과2] 명확한 표현", "ce3": "[사후_공동창출효과3] 방안 탐색", "ce4": "[사후_공동창출효과4] 적극 반응", "ce5": "[사후_공동창출효과5] 좋은 해결책", "ce6": "[사후_공동창출효과6] 반복 수정발전", "ce7": "[사후_공동창출효과7] 더 나은 결과", "ce_mean": "[사후] 공동창출 효과 평균"
-                    }
-                    if last_part in SURVEY_MAP: return SURVEY_MAP[last_part]
-                    return f"[미확인] {last_part}"
-
-                # =========================================================
-                # 🎯 여기입니다! 가나다순을 폐기하고 완벽한 시간 흐름순으로 강제 고정
-                # =========================================================
-                ORDERED_COLUMNS = [
-                    # [1] 인트로 & 시스템
-                    "[시스템] 참가자_ID", "[시스템] 참여_일시", "[시스템] 배정_셀", "[시스템] 실험집단", "[시스템] 과제유형", "[시스템] 사용_모델", "[시스템] 과제_수행_순서",
-                    # [2] 사전 설문
-                    "[사전] 성별", "[사전] 연령대", "[사전] AI 경험", "[사전_NFC_평균]", "[사전_근거_평균]", "[사전_AI환각인식_평균]", "[사전_과신편향_평균]", "[사전_정서중시_평균]",
-                    # [3] 실험 과제
-                    "[과제] 최초 주장 내용", "[실험] 사전 확신도", "[알고리즘] 초기 환각지수(HI)",
-                    # [4] 사후 설문
-                    "[사후] 소외효과 조작점검 평균", "[실험] 사후 확신도", 
-                    "[사후] 메타인지(전반) 평균", "[사후] 메타인지(거리두기) 평균", "[사후] 메타인지(출처모니터링) 평균", "[사후] 메타인지(반사실적사고) 평균", "[사후] 메타인지(지적겸손) 평균",
-                    "[사후] 자기보고 환각(근거부족) 평균", "[사후] 자기보고 환각(출처모호) 평균", "[사후] 자기보고 환각(정서판단) 평균", "[사후] 자기보고 환각(비일관성) 평균",
-                    "[사후] 공동창출 의향 평균", "[사후] 공동창출 효과 평균",
-                    # [5] 완료 & 산출물
-                    "[최종] 결과물 제목", "[최종] 판단 이유", "[최종] 주관적 성찰 기록", "[결과] 독창성", "[결과] 유용성", "[결과] 적합성", "[결과] 창의성 종합지수", "[결과] 전체 대화 만족도",
-                    # [6] 기타 분석 및 로그
-                    "[분석] 환각지수 감소량", "[분석] 확신도 변화량", "[알고리즘] 최종 환각지수(HI)",
-                    "[알고리즘_초기] 확신-근거 불일치", "[알고리즘_초기] 정서 기반 판단", "[알고리즘_초기] 출처 모호성", "[알고리즘_초기] 확신 대비 근거 부족", "[알고리즘_초기] 비일관성",
-                    "[알고리즘_최종] 확신-근거 불일치", "[알고리즘_최종] 정서 기반 판단", "[알고리즘_최종] 출처 모호성", "[알고리즘_최종] 확신 대비 근거 부족", "[알고리즘_최종] 비일관성",
-                    "[알고리즘_메타인지] 인지적 거리두기", "[알고리즘_메타인지] 반사실적 사고", "[알고리즘_메타인지] 지적 겸손", "[알고리즘_메타인지] 현실 모니터링",
-                    "[시스템] 진행된_대화_턴수", "[시스템] 고정_대화_턴수", "[시스템] 실험_설계", "[로그] 대화 전체 기록"
-                ]
-
-                def _flatten_all(d, prefix=""):
-                    items = {}
-                    for k, v in d.items():
-                        full_path = f"{prefix}{k}" if prefix else k
-                        if isinstance(v, dict):
-                            items.update(_flatten_all(v, full_path + "."))
-                        else:
-                            mapped_key = get_korean_name(full_path)
-                            items[mapped_key] = json.dumps(v, ensure_ascii=False) if isinstance(v, list) else v
-                    return items
-
                 all_r = [json.load(open(fp, "r", encoding="utf-8")) for fp in files]
-                processed_data = [_flatten_all(r) for r in all_r]
+                processed_data = [flatten_result_full(r) for r in all_r]
 
                 if processed_data:
                     import io, csv
                     output = io.StringIO()
                     
-                    # 엑셀에 적을 데이터 안에 존재하는 키를 모두 뽑음
                     present_keys_in_data = list(set(k for row in processed_data for k in row.keys()))
-                    
-                    # 🎯 알파벳 정렬(sorted)을 빼고, 위에서 선언한 ORDERED_COLUMNS 순서대로만 담음
-                    final_columns = [k for k in ORDERED_COLUMNS if k in present_keys_in_data]
-                    
-                    # 혹시 정의되지 않은 문항(예: ebr1 개별 문항 등)이 섞여있다면 맨 뒤에 붙임
+                    final_columns = [k for k in FULL_ORDERED_COLUMNS if k in present_keys_in_data]
                     extra_columns = sorted([k for k in present_keys_in_data if k not in final_columns])
                     final_columns.extend(extra_columns)
                     
@@ -1525,17 +1508,24 @@ elif st.session_state.phase == "post_survey":
                 writer.writeheader()
             writer.writerow(flat)
 
-        # ★ Google Sheets에도 저장 (클라우드 배포 시 데이터 보존)
+        # ★ Google Sheets에도 저장 (전체 칼럼 — 관리자 CSV와 동일 구조)
         try:
             ws = _get_worksheet("results")
             if ws:
+                full_flat = flatten_result_full(result)
                 existing = ws.get_all_values()
-                # 헤더가 없거나 빈 시트면 헤더 먼저 작성
                 has_header = existing and any(cell.strip() for cell in existing[0])
                 if not has_header:
                     ws.clear()
-                    ws.append_row(COLUMN_ORDER)
-                row = [str(flat.get(col, "")) for col in COLUMN_ORDER]
+                    # 정의된 칼럼 + 데이터에만 있는 추가 칼럼
+                    present_keys = list(full_flat.keys())
+                    gs_columns = [c for c in FULL_ORDERED_COLUMNS if c in present_keys]
+                    extra = sorted([k for k in present_keys if k not in gs_columns])
+                    gs_columns.extend(extra)
+                    ws.append_row(gs_columns)
+                else:
+                    gs_columns = existing[0]
+                row = [str(full_flat.get(col, "")) for col in gs_columns]
                 ws.append_row(row)
         except Exception as e:
             pass  # Google Sheets 실패해도 로컬 CSV는 이미 저장됨
@@ -1563,5 +1553,5 @@ elif st.session_state.phase == "withdrawn":
 
 - 연구책임자: 권상지 연구원
 - 소속: 경희대학교 경영학과, 차세대정보기술연구센터(CAITECH)
-- 이메일: obkwon@khu.ac.kr
+- 이메일: aaaitaaa@khu.ac.kr
     """)
