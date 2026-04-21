@@ -38,6 +38,9 @@ GSHEET_NAME = st.secrets.get("GSHEET_NAME", "BMDM_Results")
 @st.cache_resource
 def _get_gspread_client():
     """Google Sheets 클라이언트 초기화 (서비스 계정 인증)."""
+    # secrets에 gcp_service_account가 없으면 시도조차 하지 않음
+    if "gcp_service_account" not in st.secrets:
+        return None
     try:
         import gspread
         from google.oauth2.service_account import Credentials
@@ -50,7 +53,6 @@ def _get_gspread_client():
         )
         return gspread.authorize(creds)
     except Exception as e:
-        st.warning(f"Google Sheets 연결 실패 — 로컬 파일로 저장합니다. ({e})")
         return None
 
 def _get_worksheet(sheet_name):
@@ -665,6 +667,8 @@ def run_task_phase():
                 st.session_state.phase = "post_survey"
                 st.rerun()
 
+        render_withdraw_button("task")
+
 # ============================================================
 # UI 헬퍼
 # ============================================================
@@ -1028,12 +1032,13 @@ if st.session_state.get("host_auth"):
     p = st.session_state.get("phase","intro")
     st.markdown(f'<div style="background:#1a1a1a;border:1px solid #444;border-radius:8px;padding:8px 14px;margin-bottom:12px;font-size:13px;color:#fff;">🔧 <b>관리자</b> — 셀{c} | {p}</div>', unsafe_allow_html=True)
 
-# 참여 종료 버튼 (사이드바 — 진행 중인 단계에서만 표시)
-if st.session_state.get("phase") in ("pre_survey", "task", "post_survey", "consent"):
-    with st.sidebar:
-        st.markdown("---")
-        if st.button("🚪 참여 종료", key="withdraw_btn", use_container_width=True):
-            st.session_state.phase = "withdrawn"; st.rerun()
+# 참여 종료 버튼 (각 페이지 하단에서 호출)
+def render_withdraw_button(key_suffix=""):
+    """각 페이지 하단에 참여 종료 버튼을 표시."""
+    st.markdown("---")
+    st.markdown("")
+    if st.button("🚪 참여를 종료합니다", key=f"withdraw_{key_suffix}", use_container_width=True):
+        st.session_state.phase = "withdrawn"; st.rerun()
 
 # ── PHASE 0: 인트로 ──
 if st.session_state.phase == "intro":
@@ -1121,6 +1126,8 @@ elif st.session_state.phase == "consent":
         st.warning("연구 참여에 동의하지 않으셨습니다. 참여해 주셔서 감사합니다.")
         st.markdown("브라우저를 닫으시면 됩니다.")
 
+    render_withdraw_button("consent")
+
 # ── PHASE 1: 사전 설문 (표3 조절변수) ──
 elif st.session_state.phase == "pre_survey":
     st.title("📋 사전 설문")
@@ -1196,6 +1203,8 @@ elif st.session_state.phase == "pre_survey":
         st.session_state.engine = BMDMEngine()
         st.session_state.phase = "task"
         st.rerun()
+
+    render_withdraw_button("pre_survey")
 
 # ── PHASE 2: 과제 수행 ──
 elif st.session_state.phase == "task":
@@ -1513,7 +1522,10 @@ elif st.session_state.phase == "post_survey":
             ws = _get_worksheet("results")
             if ws:
                 existing = ws.get_all_values()
-                if not existing:
+                # 헤더가 없거나 빈 시트면 헤더 먼저 작성
+                has_header = existing and any(cell.strip() for cell in existing[0])
+                if not has_header:
+                    ws.clear()
                     ws.append_row(COLUMN_ORDER)
                 row = [str(flat.get(col, "")) for col in COLUMN_ORDER]
                 ws.append_row(row)
@@ -1523,6 +1535,8 @@ elif st.session_state.phase == "post_survey":
         st.session_state.saved_result = result
         st.session_state.phase = "done"
         st.rerun()
+
+    render_withdraw_button("post_survey")
 
 # ── PHASE 4: 완료 ──
 elif st.session_state.phase == "done":
@@ -1539,7 +1553,7 @@ elif st.session_state.phase == "withdrawn":
 
 궁금하신 사항이 있으시면 연구 담당자에게 문의해 주세요.
 
-- 연구책임자: 권오병 교수
-- 소속: 경희대학교 경영학과
-- 이메일: obkwon@khu.ac.kr
+- 연구담당자: 권상지 연구원
+- 소속: 경희대학교 경영학과, 차세대정보기술연구센터(CAITECH)
+- 이메일: aaaitaaa@khu.ac.kr
     """)
