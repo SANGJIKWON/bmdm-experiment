@@ -1,0 +1,7 @@
+.streamlit/secrets.toml
+secrets_template.toml
+cell_counts.json
+results/
+__pycache__/
+*.pyc
+.env
