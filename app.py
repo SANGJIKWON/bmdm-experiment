@@ -1551,7 +1551,7 @@ elif st.session_state.phase == "withdrawn":
 
 궁금하신 사항이 있으시면 연구 담당자에게 문의해 주세요.
 
-- 연구책임자: 권상지 연구원
+- 연구담당자: 권상지 연구원
 - 소속: 경희대학교 경영학과, 차세대정보기술연구센터(CAITECH)
 - 이메일: aaaitaaa@khu.ac.kr
     """)
