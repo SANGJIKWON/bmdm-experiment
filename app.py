@@ -1,11 +1,20 @@
 # ============================================================
-# BMDM 실험 플랫폼 (Streamlit + Claude API)
+# BMDM 실험 플랫폼 (Streamlit + Claude API) — 통합 완성본
 #
 # ★ 2×2 between-subjects factorial design
 #   셀A: BMDM + 분석적 과제  |  셀B: BMDM + 창의적 과제
 #   셀C: 통제 + 분석적 과제  |  셀D: 통제 + 창의적 과제
 #   참가자 1명 = 1개 셀, 1개 과제만 수행 (셀당 최대 30명)
-#   FIXED_CYCLES = 5회 대화
+#
+# ★ 본 버전 반영 사항
+#   1) 브레히트적 소외 전략 6종 (몰입 차단 추가) / FIXED_CYCLES = 6
+#   2) 3.2절 Claim 측정: Claude API 기반 파라미터 평가 (+키워드 폴백)
+#   3) 적응형 전략 선택: 예상 HI 감소폭 최대 전략 선택 (steepest descent)
+#   4) 사전·사후 설문: 첨부 설문 PDF 기준으로 통일
+#      - 과신 5문항, 정서 중시 4문항
+#      - 사전설문에 메타인지 4개 차원 baseline + LLM 환각 단일문항 추가
+#      - 사후 인지적 거리두기 4문항(sd5 제거), sm3·cf1 문구 PDF 반영
+#   5) 확신도(완벽도) 슬라이더는 보조 탐색지표로 유지
 # ============================================================
 
 import streamlit as st
@@ -19,7 +28,7 @@ from typing import List, Dict, Tuple, Optional
 # ============================================================
 CLAUDE_API_KEY = st.secrets.get("ANTHROPIC_API_KEY", os.environ.get("ANTHROPIC_API_KEY", ""))
 CLAUDE_MODEL   = "claude-haiku-4-5-20251001"
-FIXED_CYCLES   = 5
+FIXED_CYCLES   = 6          # ★ 전략 6종에 맞춰 6사이클
 HOST_PASSWORD  = st.secrets.get("HOST_PASSWORD", "bmdm2025admin")
 MAX_PER_CELL   = 30
 
@@ -38,7 +47,6 @@ GSHEET_NAME = st.secrets.get("GSHEET_NAME", "BMDM_Results")
 @st.cache_resource
 def _get_gspread_client():
     """Google Sheets 클라이언트 초기화 (서비스 계정 인증)."""
-    # secrets에 gcp_service_account가 없으면 시도조차 하지 않음
     if "gcp_service_account" not in st.secrets:
         return None
     try:
@@ -65,7 +73,7 @@ def _get_worksheet(sheet_name):
         try:
             return spreadsheet.worksheet(sheet_name)
         except:
-            return spreadsheet.add_worksheet(title=sheet_name, rows=200, cols=50)
+            return spreadsheet.add_worksheet(title=sheet_name, rows=200, cols=80)
     except Exception as e:
         return None
 
@@ -75,7 +83,6 @@ def _get_worksheet(sheet_name):
 CELL_COUNT_FILE = "cell_counts.json"
 
 def _load_cell_counts():
-    # Google Sheets 우선
     ws = _get_worksheet("cell_counts")
     if ws:
         try:
@@ -83,21 +90,18 @@ def _load_cell_counts():
             if data:
                 return {row["cell"]: int(row["count"]) for row in data}
             else:
-                # 초기화: 헤더 + 4개 셀 행 생성
                 ws.update("A1:B1", [["cell", "count"]])
                 rows = [[k, 0] for k in CELLS]
                 ws.update(f"A2:B{len(rows)+1}", rows)
                 return {k: 0 for k in CELLS}
         except:
             pass
-    # 폴백: 로컬 JSON
     if os.path.exists(CELL_COUNT_FILE):
         with open(CELL_COUNT_FILE, "r") as f:
             return json.load(f)
     return {k: 0 for k in CELLS}
 
 def _save_cell_counts(counts):
-    # Google Sheets 우선
     ws = _get_worksheet("cell_counts")
     if ws:
         try:
@@ -105,7 +109,6 @@ def _save_cell_counts(counts):
             ws.update(f"A1:B{len(rows)}", rows)
         except:
             pass
-    # 로컬도 항상 저장 (폴백)
     with open(CELL_COUNT_FILE, "w") as f:
         json.dump(counts, f)
 
@@ -142,9 +145,39 @@ def call_claude_api(system_prompt: str, user_message: str, max_tokens: int = 500
         return ""
 
 # ============================================================
+# ★ 3.2절: Claim 파라미터 측정 (Claude API 기반)
+#   사용자 발화를 분석하여 Certainty / Affect / Evidence / Source를
+#   각각 [0,1]로 평가한다. API 실패 시 키워드 휴리스틱으로 폴백.
+# ============================================================
+CLAIM_ASSESS_SYS = """당신은 BMDM의 Claim 분석기입니다. 사용자 발화를 분석하여 아래 네 파라미터를 각각 0.0~1.0 실수로 평가하세요.
+- certainty(확신 수준): "반드시·완벽·확실·절대" 등 단정·보편·절대 표현이 강할수록 높음
+- affect_intensity(정서 강도): 자부심·명예·애착 등 정서적 함의가 강할수록 높음
+- evidence_status(근거 상태): 수치·데이터·실험·인용·출처 등 검증 가능한 근거가 명시될수록 높음
+- source_ambiguity(출처 모호성): 출처가 생략·불분명할수록 높음
+설명 없이 JSON만 응답: {"certainty":0.0,"affect_intensity":0.0,"evidence_status":0.0,"source_ambiguity":0.0}"""
+
+def assess_claim_via_llm(text: str):
+    """발화의 네 파라미터를 LLM으로 평가. 실패 시 None."""
+    r = call_claude_api(CLAIM_ASSESS_SYS, f'발화: "{text}"', max_tokens=200)
+    if r:
+        try:
+            clean = re.sub(r'```json\s*|```\s*', '', r.strip())
+            d = json.loads(clean)
+            clamp = lambda x: max(0.0, min(1.0, float(x)))
+            return (clamp(d.get("certainty", 0.5)), clamp(d.get("affect_intensity", 0.5)),
+                    clamp(d.get("evidence_status", 0.5)), clamp(d.get("source_ambiguity", 0.5)))
+        except Exception:
+            return None
+    return None
+
+# ============================================================
 # 실험집단: 필수 프롬프트 + Claude API 도입 문장
 # ============================================================
 MANDATORY_PROMPTS = {
+    "Immersion_Interruption": [
+        "현재 핵심 주장을 한 문장으로 정리하면 무엇입니까?",
+        "이 주장에 대한 확신 수준을 0~100%로 표현하면 어느 정도입니까?"
+    ],
     "Externalize": [
         "이 생각을 내가 아닌 다른 사람의 관점에서는 어떻게 설명할 수 있겠습니까?",
         "이 주장을 외부에서 관찰한다면 어떤 특징이 보일까요?"
@@ -168,6 +201,7 @@ MANDATORY_PROMPTS = {
 }
 
 STRATEGY_DESCRIPTIONS = {
+    "Immersion_Interruption": "자동적·습관적 인지 흐름을 일시 중단시키고 핵심 주장을 명시적으로 재진술하게 하여 인지적 자동성을 약화시킵니다.",
     "Externalize": "특정 신념을 자기 자신과 분리된 관점으로 재구성하도록 유도하여 인지적 거리를 형성합니다.",
     "Origin_Source_Differentiation": "생각의 기원과 근거 출처를 구분하도록 요구합니다.",
     "Counter_Position": "현재 주장과 경쟁하는 대안적 해석을 생성하도록 요구합니다.",
@@ -208,7 +242,6 @@ def generate_experimental_prompt(strategy_mode, user_input, history, task_key):
 # ============================================================
 # 통제집단: 템플릿 고정 LLM 호출 (엄격한 제약 + 검증 + 폴백)
 # ============================================================
-# 각 사이클별 "의도(intent)" 정의 — 논문의 '결과 개선형' 프롬프트를 5단계로 세분화
 CTRL_CYCLE_TEMPLATES = {
     "creative": [
         {"intent": "전반적 격려 + 내용 보완 요청",
@@ -221,6 +254,8 @@ CTRL_CYCLE_TEMPLATES = {
          "base":   "훌륭합니다. 완성도를 높이기 위해 조금 더 보완해 주세요."},
         {"intent": "완성 임박 인정 + 마무리 정리 요청",
          "base":   "거의 완성에 가깝습니다. 마무리를 위해 내용을 정리해 주세요."},
+        {"intent": "최종 마감 격려 + 다듬기 요청",
+         "base":   "좋습니다. 마지막으로 전체를 한 번 더 다듬어 주세요."},
     ],
     "factual": [
         {"intent": "전반적 격려 + 내용 보완 요청",
@@ -233,6 +268,8 @@ CTRL_CYCLE_TEMPLATES = {
          "base":   "훌륭합니다. 완성도를 높이기 위해 조금 더 보완해 주세요."},
         {"intent": "완성 임박 인정 + 마무리 정리 요청",
          "base":   "거의 완성에 가깝습니다. 마무리를 위해 내용을 정리해 주세요."},
+        {"intent": "최종 마감 격려 + 정리 요청",
+         "base":   "좋습니다. 마지막으로 전체 내용을 한 번 더 정리해 주세요."},
     ],
 }
 
@@ -253,7 +290,6 @@ CTRL_SYSTEM_STRICT = """당신은 사용자의 작업을 격려하는 단순 응
 - 설명, 해설, 부가문을 덧붙이지 마세요. 1문장만."""
 
 
-# 금지 패턴 (LLM이 규칙을 어기면 폴백)
 _CTRL_FORBIDDEN_PATTERNS = [
     r'\?', r'\bwhy\b', r'\bhow\b',
     '왜', '어떻게', '무엇이', '무엇을', '무엇인', '어디에서', '어떤 점', '어떤 근거',
@@ -270,7 +306,6 @@ def _validate_ctrl_output(text: str) -> bool:
     for pat in _CTRL_FORBIDDEN_PATTERNS:
         if re.search(pat, low):
             return False
-    # 평서문으로 끝나는지 (~다/요/오 등)
     if not re.search(r'(요|다|오|시오|바랍니다)\.?\s*$', text.strip()):
         return False
     return True
@@ -284,25 +319,21 @@ def generate_control_prompt(user_input, history, task_key):
     base_sentence = tpl["base"]
     intent = tpl["intent"]
 
-    # LLM에 전달할 요청 메시지 — 템플릿을 '거의 그대로' 쓰도록 강하게 고정
     user_msg = f"""[의도] {intent}
 [기본 문장] "{base_sentence}"
 
 위 '기본 문장'을 거의 그대로 사용하되, 자연스럽게 한 번만 다시 표현하여 1문장으로 출력하세요.
 질문·검증·성찰 유도 표현은 절대 금지입니다. 평서문 1문장만."""
 
-    # 최대 2회 재시도 (LLM이 규칙 위반 시 폴백)
     for _ in range(2):
         out = call_claude_api(CTRL_SYSTEM_STRICT, user_msg, max_tokens=120)
         if out:
-            # 첫 줄만 취하고 따옴표/번호 제거
             line = out.strip().split("\n")[0].strip()
             line = re.sub(r'^["\'\d\.\)\s\-]+', '', line).strip()
             line = line.strip('"').strip("'").strip()
             if _validate_ctrl_output(line):
                 return [line]
 
-    # 폴백: 검증 실패 시 기본 문장 그대로 사용
     return [base_sentence]
 
 # ============================================================
@@ -320,7 +351,6 @@ def evaluate_meta_cognitive(mode, user_response, current):
             keys = ["cognitive_distance","reality_monitoring","counterfactual_simulation","epistemic_humility"]
             return {k: min(1.0, current.get(k,0) + max(0, min(0.35, float(u.get(k,0))))) for k in keys}
         except: pass
-    # fallback
     text = user_response.lower()
     updates = dict(current)
     if mode=="Externalize" and any(k in text for k in ["외부","대중","다를 수","다르게"]):
@@ -334,6 +364,8 @@ def evaluate_meta_cognitive(mode, user_response, current):
         updates["epistemic_humility"] = min(1.0, updates.get("epistemic_humility",0)+0.18)
     if mode=="Probability_Framing" and ("%" in user_response or any(k in text for k in ["확률","가능성","50","60","70"])):
         updates["epistemic_humility"] = min(1.0, updates.get("epistemic_humility",0)+0.35)
+    if mode=="Immersion_Interruption" and any(k in text for k in ["요약","정리","핵심","확신"]):
+        updates["cognitive_distance"] = min(1.0, updates.get("cognitive_distance",0)+0.10)
     return updates
 
 # ============================================================
@@ -387,10 +419,12 @@ TASK_INFO = {
 # BMDM 엔진
 # ============================================================
 class BMDMEngine:
+    # ★ 전략 6종 (몰입 차단 포함)
     ALL_STRATEGIES = [
-        "Externalize","Origin_Source_Differentiation","Counter_Position",
-        "Evidence_Calibration","Probability_Framing"]
+        "Immersion_Interruption","Externalize","Origin_Source_Differentiation",
+        "Counter_Position","Evidence_Calibration","Probability_Framing"]
     STEP_LABELS = {
+        "Immersion_Interruption":"몰입 차단(Immersion Interruption)",
         "Externalize":"외재화(Externalization)",
         "Origin_Source_Differentiation":"기원–출처 분리(Origin–Source Differentiation)",
         "Counter_Position":"대안 관점 유도(Counter-Position Induction)",
@@ -399,11 +433,57 @@ class BMDMEngine:
         "Control_Supportive":"AI 피드백"}
 
     def Extract_Claims(self, text):
+        """★ 3.2절: Claude API로 4개 파라미터 평가, 실패 시 키워드 휴리스틱 폴백."""
         t = text.strip()
+        vals = assess_claim_via_llm(t)
+        if vals:
+            c, a, e, s = vals
+            return [Claim(content=t, certainty=c, affect_intensity=a,
+                          evidence_status=e, source_ambiguity=s)]
         return [Claim(content=t, certainty=self._est_cert(t), affect_intensity=self._est_affect(t),
                        evidence_status=self._est_evidence(t), source_ambiguity=self._est_source(t))]
 
+    # ── 적응형 전략 선택 (steepest descent) ──────────────────
+    def _expected_effect(self, claim, mode):
+        """전략별 예상 상태 변화 모델 (사전 정의된 idealized 효과)."""
+        c = copy.deepcopy(claim)
+        if mode == "Immersion_Interruption":
+            c.certainty = max(0.0, c.certainty - 0.05)
+        elif mode == "Externalize":
+            c.certainty = max(0.0, c.certainty - 0.10)
+            c.source_ambiguity = max(0.0, c.source_ambiguity - 0.06)
+        elif mode == "Origin_Source_Differentiation":
+            c.source_ambiguity = max(0.0, c.source_ambiguity - 0.20)
+            c.evidence_status = min(1.0, c.evidence_status + 0.08)
+        elif mode == "Counter_Position":
+            c.certainty = max(0.0, c.certainty - 0.16)
+            c.affect_intensity = max(0.0, c.affect_intensity - 0.05)
+        elif mode == "Evidence_Calibration":
+            c.evidence_status = min(1.0, c.evidence_status + 0.20)
+            c.certainty = max(0.0, c.certainty - 0.10)
+        elif mode == "Probability_Framing":
+            # certainty를 evidence_status 쪽으로 보정 → Calibration Error 감소
+            c.certainty = c.certainty - 0.5 * (c.certainty - c.evidence_status)
+        return c
+
+    def Select_Best_Strategy(self, claim, state, used_modes):
+        """예상 HI 감소폭이 가장 큰 미사용 전략 선택 (greedy risk minimization).
+        반환: (선택 전략, 예상 HI 감소량)."""
+        candidates = [m for m in self.ALL_STRATEGIES if m not in used_modes]
+        if not candidates:
+            return self.ALL_STRATEGIES[-1], 0.0
+        cur_hi = self.Calculate_HI(claim, state)["Hallucination_Index"]
+        best, best_drop = candidates[0], -1.0
+        for m in candidates:
+            sim = self._expected_effect(claim, m)
+            sim_hi = self.Calculate_HI(sim, state)["Hallucination_Index"]
+            drop = cur_hi - sim_hi
+            if drop > best_drop:
+                best, best_drop = m, drop
+        return best, round(best_drop, 3)
+
     def Select_Next_Strategy(self, used_modes):
+        """순차 선택 (관리자 건너뛰기 등 폴백 용도)."""
         for m in self.ALL_STRATEGIES:
             if m not in used_modes: return m
         return self.ALL_STRATEGIES[-1]
@@ -426,9 +506,7 @@ class BMDMEngine:
         양 집단 모두 동일한 공통 갱신을 적용하고, BMDM 전략의 순효과는 실험집단의
         추가 조정(_apply_strategy_bonus)에서만 발생시킨다.
         """
-        # (1) 공통 갱신: 모든 집단에 적용되는 텍스트 기반 점진 조정
         self._apply_common_update(claim, resp)
-        # (2) 전략 보너스: 실험집단에서만 BMDM 전략별 추가 조정
         if group == "experimental":
             self._apply_strategy_bonus(claim, mode, resp)
 
@@ -436,31 +514,26 @@ class BMDMEngine:
         """양 집단 공통: 응답 텍스트 기반 보수적 파라미터 갱신 (카테고리당 ±0.04)."""
         t = resp.lower()
         STEP = 0.04
-
-        # Evidence: 근거·자료 제시 키워드 → 증거 상태 증가
         if any(k in t for k in ["데이터","근거","통계","연구","조사","실험","자료","보고서","문헌"]):
             claim.evidence_status = min(1.0, claim.evidence_status + STEP)
-
-        # Source Ambiguity: 출처 명시 표현 → 모호성 감소
         if any(k in t for k in ["에 따르면","보고서","발표","출처","인용","논문"]):
             claim.source_ambiguity = max(0.0, claim.source_ambiguity - STEP)
-
-        # Certainty: 완화 표현(내림) vs 강화 표현(올림) — 상호 배타
         if any(k in t for k in ["아마","가능","추정","것 같","일지","어쩌면","모르","불확실"]):
             claim.certainty = max(0.0, claim.certainty - STEP)
         elif any(k in t for k in ["반드시","완벽","확실","절대","틀림없","분명","유일"]):
             claim.certainty = min(1.0, claim.certainty + STEP)
-
-        # Affect Intensity: 정서 키워드(올림) vs 객관 키워드(내림) — 상호 배타
         if any(k in t for k in ["자부심","위상","애착","감동","상징","명예","희망"]):
             claim.affect_intensity = min(1.0, claim.affect_intensity + STEP)
         elif any(k in t for k in ["객관","중립","냉정","사실적"]):
             claim.affect_intensity = max(0.0, claim.affect_intensity - STEP)
 
     def _apply_strategy_bonus(self, claim, mode, resp):
-        """실험집단 전용: BMDM 전략별 추가 조정 (기존 Update_Claim 로직 유지)."""
+        """실험집단 전용: BMDM 전략별 추가 조정."""
         t = resp.lower()
-        if mode == "Externalize" and any(k in t for k in ["외부","다를 수","다르게"]):
+        if mode == "Immersion_Interruption":
+            # 핵심 주장 재진술 — 확신 수준은 슬라이더 입력값으로 run_task_phase에서 반영됨
+            pass
+        elif mode == "Externalize" and any(k in t for k in ["외부","다를 수","다르게"]):
             claim.certainty = max(0, claim.certainty - 0.10)
             claim.source_ambiguity = max(0, claim.source_ambiguity - 0.06)
         elif mode == "Origin_Source_Differentiation":
@@ -545,7 +618,7 @@ def run_task_phase():
                                        placeholder="자유롭게 작성해주세요...")
             st.markdown("---")
             st.caption(task["confidence_q"])
-            pre_conf = st.slider("완벽도 (0~100%)", 0, 100, 50, key="pre_conf")
+            pre_conf = st.slider("완벽도 (0~100%)", 0, 100, 50, key="pre_conf")  # 보조 탐색지표
             submitted = st.form_submit_button("제출 및 AI와 대화 시작", use_container_width=True, type="primary")
         if submitted and user_input.strip():
             claims = engine.Extract_Claims(user_input)
@@ -566,7 +639,8 @@ def run_task_phase():
                 st.session_state[prefix+"cur_prompts"] = generate_control_prompt(user_input, [], task_key)
                 st.session_state[prefix+"cur_mode"] = "Control_Supportive"
             else:
-                mode = engine.Select_Next_Strategy([])
+                # ★ 적응형: 예상 HI 감소폭이 가장 큰 전략 선택
+                mode, _ = engine.Select_Best_Strategy(claim, state, [])
                 st.session_state[prefix+"cur_mode"] = mode
                 st.session_state[prefix+"cur_prompts"] = generate_experimental_prompt(mode, user_input, [], task_key)
             st.rerun()
@@ -589,29 +663,32 @@ def run_task_phase():
                         st.markdown(p)
                 with st.chat_message("user"):
                     if turn.get("probability_slider") is not None:
-                        st.caption(f"📊 선택한 확률: {turn['probability_slider']}%")
+                        st.caption(f"📊 선택한 값: {turn['probability_slider']}%")
                     st.write(turn["user_response"])
 
         if not is_done:
             cur_mode = st.session_state[prefix+"cur_mode"]
-            is_prob_framing = (cur_mode == "Probability_Framing" and group == "experimental")
+            # ★ 몰입 차단 / 확률적 재구성 전략일 때 0~100% 슬라이더 표시
+            needs_conf_slider = (group == "experimental"
+                                 and cur_mode in ("Probability_Framing", "Immersion_Interruption"))
 
             with st.chat_message("assistant"):
                 for p in st.session_state[prefix+"cur_prompts"]:
                     st.markdown(p)
-                if is_prob_framing:
-                    st.markdown("**아래 슬라이더로 확률을 선택해 주세요.**")
+                if needs_conf_slider:
+                    st.markdown("**아래 슬라이더로 0~100% 값을 선택해 주세요.**")
 
             with st.form(f"chat_{cycle_done}", clear_on_submit=True):
                 remaining = FIXED_CYCLES - cycle_done
 
-                # ★ 확률적 재구성 전략일 때 확률 슬라이더 표시
                 prob_val = None
-                if is_prob_framing:
+                if needs_conf_slider:
+                    slider_label = ("이 주장이 옳을 확률 (0~100%)"
+                                    if cur_mode == "Probability_Framing"
+                                    else "현재 이 주장에 대한 확신 수준 (0~100%)")
                     prob_val = st.slider(
-                        "이 주장이 옳을 확률 (0~100%)", 0, 100, 50,
+                        slider_label, 0, 100, 50,
                         key=f"{prefix}prob_slider",
-                        help="현재 주장이 옳다고 생각하는 확률을 선택하세요."
                     )
 
                 user_resp = st.text_area(f"응답을 입력하세요 ({remaining}회 남음):", height=100)
@@ -620,13 +697,14 @@ def run_task_phase():
             if sent and user_resp.strip():
                 cur_mode = st.session_state[prefix+"cur_mode"]
 
-                # 확률 슬라이더 값을 응답에 반영
+                # 슬라이더 값을 응답·certainty에 반영
                 final_resp = user_resp
                 if prob_val is not None:
-                    final_resp = f"확률: {prob_val}%. {user_resp}"
+                    tag = "확률" if cur_mode == "Probability_Framing" else "확신"
+                    final_resp = f"{tag}: {prob_val}%. {user_resp}"
                     claim.certainty = prob_val / 100.0
 
-                # 공통: 양 집단 모두 동일한 Claim 갱신 로직을 사용 (논문 3.5절 정합)
+                # 공통: 양 집단 모두 동일한 Claim 갱신 로직 사용 (논문 3.5절 정합)
                 engine.Update_Claim(claim, cur_mode, final_resp, group=group)
                 # 실험집단 전용: 메타인지 활성화 측정 (BMDM 내부 모니터링 — 논문 3.1절 표1)
                 if group == "experimental":
@@ -656,7 +734,8 @@ def run_task_phase():
                     else:
                         used = st.session_state[prefix+"used_modes"] + [cur_mode]
                         st.session_state[prefix+"used_modes"] = used
-                        nxt = engine.Select_Next_Strategy(used)
+                        # ★ 적응형: 갱신된 claim·state 기준으로 다음 전략 선택
+                        nxt, _ = engine.Select_Best_Strategy(claim, state, used)
                         st.session_state[prefix+"cur_mode"] = nxt
                         st.session_state[prefix+"cur_prompts"] = generate_experimental_prompt(nxt, user_resp, transcript, task_key)
                 st.rerun()
@@ -701,13 +780,9 @@ def get_korean_name(key_path):
     if "creativity" in key_str and "original" in key_str: return "[결과] 독창성"
     if "creativity" in key_str and "useful" in key_str: return "[결과] 유용성"
     if "creativity_index" in key_str: return "[결과] 창의성 종합지수"
-    if "confidence" in key_str and "pre" in key_str: return "[실험] 사전 확신도"
-    if "confidence" in key_str and "post" in key_str: return "[실험] 사후 확신도"
-    if "confidence" in key_str and "change" in key_str: return "[분석] 확신도 변화량"
-    if "nfc1" in key_str: return "[사전_NFC1] 복잡한 문제 선호"
-    if "nfc2" in key_str: return "[사전_NFC2] 깊은 사고 선호"
-    if "nfc3" in key_str: return "[사전_NFC3] 사고 과정 즐김"
-    if "nfc_mean" in key_str: return "[사전_NFC_평균]"
+    if "confidence" in key_str and "pre" in key_str: return "[실험] 사전 확신도(보조)"
+    if "confidence" in key_str and "post" in key_str: return "[실험] 사후 확신도(보조)"
+    if "confidence" in key_str and "change" in key_str: return "[분석] 확신도 변화량(보조)"
     if "task_order" in key_str: return "[시스템] 과제_수행_순서"
     if "fixed_cycles" in key_str: return "[시스템] 고정_대화_턴수"
     if "design" in key_str: return "[시스템] 실험_설계"
@@ -727,7 +802,6 @@ def get_korean_name(key_path):
     if "overall_satisfaction" in key_str: return "[결과] 전체 대화 만족도"
     if "gender" in key_str: return "[사전] 성별"
     if "age_group" in key_str: return "[사전] 연령대"
-    if "ai_experience" in key_str: return "[사전] AI 경험"
     if "initial_hi" in key_str:
         if "hallucination_index" in key_str: return "[알고리즘] 초기 환각지수(HI)"
         if "calibration_error" in key_str: return "[알고리즘_초기] 확신-근거 불일치"
@@ -748,15 +822,23 @@ def get_korean_name(key_path):
     if "reality_monitoring" in key_str: return "[알고리즘_메타인지] 현실 모니터링"
     last_part = key_str.split('.')[-1]
     _SURVEY_MAP = {
+        # ── 사전 설문 (성향 척도) ──
         "ebr1": "[사전_근거1] 근거 중요성", "ebr2": "[사전_근거2] 데이터 기반", "ebr3": "[사전_근거3] 증거 확인", "ebr4": "[사전_근거4] 직관보다 근거", "ebr_mean": "[사전_근거_평균]",
         "aha1": "[사전_AI환각인식1] AI 틀린 정보", "aha2": "[사전_AI환각인식2] 무조건 신뢰 안함", "aha3": "[사전_AI환각인식3] 검증 필요", "aha4": "[사전_AI환각인식4] 사실과 다른 내용", "aha_mean": "[사전_AI환각인식_평균]",
-        "oc1": "[사전_과신편향1] 이상/원칙 충성", "oc2": "[사전_과신편향2] 지지자 구분", "oc3": "[사전_과신편향3] 생각변화는 약함", "oc4": "[사전_과신편향4] 논리보다 느낌", "oc5": "[사전_과신편향5] 반대증거 무시", "oc6": "[사전_과신편향6] 내 판단 믿음", "oc_mean": "[사전_과신편향_평균]",
-        "emo1": "[사전_정서중시1] 삶 방향 영향", "emo2": "[사전_정서중시2] 삶을 흥미롭게", "emo3": "[사전_정서중시3] 느끼는것이 건강", "emo4": "[사전_정서중시4] 감정 통해 배움", "emo5": "[사전_정서중시5] 판단에 영향", "emo_mean": "[사전_정서중시_평균]",
+        "oc1": "[사전_과신편향1] 이상/원칙 충성", "oc2": "[사전_과신편향2] 지지자 구분", "oc3": "[사전_과신편향3] 생각변화는 약함", "oc4": "[사전_과신편향4] 논리보다 느낌", "oc5": "[사전_과신편향5] 반대증거 무시", "oc_mean": "[사전_과신편향_평균]",
+        "emo1": "[사전_정서중시1] 삶 방향 영향", "emo2": "[사전_정서중시2] 삶을 흥미롭게", "emo3": "[사전_정서중시3] 느끼는것이 건강", "emo4": "[사전_정서중시4] 감정 통해 배움", "emo_mean": "[사전_정서중시_평균]",
+        # ── 사전 설문 (메타인지 baseline, 현재형) ──
+        "psd1": "[사전_거리1] 제3자 시각", "psd2": "[사전_거리2] 거리감 평가", "psd3": "[사전_거리3] 감정/판단 분리", "psd4": "[사전_거리4] 객관적 검토", "psd_mean": "[사전] 거리두기 평균",
+        "psm1": "[사전_현실1] 출처 확인", "psm2": "[사전_현실2] 사실/추론 구분", "psm3": "[사전_현실3] 사실/상상 구별", "psm4": "[사전_현실4] 근거출처 성찰", "psm_mean": "[사전] 현실모니터링 평균",
+        "pcf1": "[사전_반사실1] 틀릴 수 있음", "pcf2": "[사전_반사실2] 다른 정답", "pcf3": "[사전_반사실3] 다양한 해석", "pcf4": "[사전_반사실4] 확신오류 없음", "pcf_mean": "[사전] 반사실적사고 평균",
+        "pih1": "[사전_지겸1] 학습 필요성", "pih2": "[사전_지겸2] 오류 인정", "pih3": "[사전_지겸3] 수정 의향", "pih4": "[사전_지겸4] 경청 의지", "pih_mean": "[사전] 지적겸손 평균",
+        "llm_halluc": "[사전] LLM환각인식(단일)",
+        # ── 사후 설문 ──
         "bae1": "[사후_소외1] 낯설게 바라봄", "bae2": "[사후_소외2] 떨어져서 봄", "bae3": "[사후_소외3] 비판적 검토", "bae4": "[사후_소외4] 자동적반응 멈춤", "bae_mean": "[사후] 소외효과 조작점검 평균",
         "mc1": "[사후_메타1] 목표 부합 점검", "mc2": "[사후_메타2] 오류 인식", "mc3": "[사후_메타3] 옵션 점검", "mc4": "[사후_메타4] 타당성 자문", "mc_mean": "[사후] 메타인지(전반) 평균",
-        "sd1": "[사후_거리1] 제3자 시각", "sd2": "[사후_거리2] 거리감 유지", "sd3": "[사후_거리3] 감정/판단 분리", "sd4": "[사후_거리4] 객관적 검토", "sd5": "[사후_거리5] 일시성 인지", "sd_mean": "[사후] 메타인지(거리두기) 평균",
+        "sd1": "[사후_거리1] 제3자 시각", "sd2": "[사후_거리2] 거리감 유지", "sd3": "[사후_거리3] 감정/판단 분리", "sd4": "[사후_거리4] 객관적 검토", "sd_mean": "[사후] 메타인지(거리두기) 평균",
         "sm1": "[사후_출처1] 출처 확인", "sm2": "[사후_출처2] 사실/추론 구분", "sm3": "[사후_출처3] 사실/상상 구별", "sm4": "[사후_출처4] 근거출처 성찰", "sm_mean": "[사후] 메타인지(출처모니터링) 평균",
-        "cf1": "[사후_반사실1] 다른 가능성", "cf2": "[사후_반사실2] 다른 정답 인지", "cf3": "[사후_반사실3] 다양한 해석", "cf4": "[사후_반사실4] 확신오류 감소", "cf_mean": "[사후] 메타인지(반사실적사고) 평균",
+        "cf1": "[사후_반사실1] 틀릴 수 있음", "cf2": "[사후_반사실2] 다른 정답 인지", "cf3": "[사후_반사실3] 다양한 해석", "cf4": "[사후_반사실4] 확신오류 감소", "cf_mean": "[사후] 메타인지(반사실적사고) 평균",
         "ih1": "[사후_지적겸손1] 학습 필요성", "ih2": "[사후_지적겸손2] 오류 인정", "ih3": "[사후_지적겸손3] 수정 의향", "ih4": "[사후_지적겸손4] 경청 의지", "ih_mean": "[사후] 메타인지(지적겸손) 평균",
         "lr1": "[사후_환각_근거부족1] 결론 인지", "lr2": "[사후_환각_근거부족2] 확신 인지", "lr3": "[사후_환각_근거부족3] 제시 미흡", "lr4": "[사후_환각_근거부족4] 설명 없음", "lr5": "[사후_환각_근거부족5] 점검 미흡", "lr_mean": "[사후] 자기보고 환각(근거부족) 평균",
         "lf1": "[사후_환각_출처모호1] 불명확", "lf2": "[사후_환각_출처모호2] 혼동", "lf3": "[사후_환각_출처모호3] 미확인", "lf4": "[사후_환각_출처모호4] 검증 미흡", "lf_mean": "[사후] 자기보고 환각(출처모호) 평균",
@@ -770,14 +852,15 @@ def get_korean_name(key_path):
 
 FULL_ORDERED_COLUMNS = [
     "[시스템] 참가자_ID", "[시스템] 참여_일시", "[시스템] 배정_셀", "[시스템] 실험집단", "[시스템] 과제유형", "[시스템] 사용_모델", "[시스템] 과제_수행_순서",
-    "[사전] 성별", "[사전] 연령대", "[사전] AI 경험", "[사전_NFC_평균]", "[사전_근거_평균]", "[사전_AI환각인식_평균]", "[사전_과신편향_평균]", "[사전_정서중시_평균]",
-    "[과제] 최초 주장 내용", "[실험] 사전 확신도", "[알고리즘] 초기 환각지수(HI)",
-    "[사후] 소외효과 조작점검 평균", "[실험] 사후 확신도",
+    "[사전] 성별", "[사전] 연령대", "[사전_근거_평균]", "[사전_AI환각인식_평균]", "[사전_과신편향_평균]", "[사전_정서중시_평균]",
+    "[사전] 거리두기 평균", "[사전] 현실모니터링 평균", "[사전] 반사실적사고 평균", "[사전] 지적겸손 평균", "[사전] LLM환각인식(단일)",
+    "[과제] 최초 주장 내용", "[실험] 사전 확신도(보조)", "[알고리즘] 초기 환각지수(HI)",
+    "[사후] 소외효과 조작점검 평균", "[실험] 사후 확신도(보조)",
     "[사후] 메타인지(전반) 평균", "[사후] 메타인지(거리두기) 평균", "[사후] 메타인지(출처모니터링) 평균", "[사후] 메타인지(반사실적사고) 평균", "[사후] 메타인지(지적겸손) 평균",
     "[사후] 자기보고 환각(근거부족) 평균", "[사후] 자기보고 환각(출처모호) 평균", "[사후] 자기보고 환각(정서판단) 평균", "[사후] 자기보고 환각(비일관성) 평균",
     "[사후] 공동창출 의향 평균", "[사후] 공동창출 효과 평균",
     "[최종] 결과물 제목", "[최종] 판단 이유", "[최종] 주관적 성찰 기록", "[결과] 독창성", "[결과] 유용성", "[결과] 적합성", "[결과] 창의성 종합지수", "[결과] 전체 대화 만족도",
-    "[분석] 환각지수 감소량", "[분석] 확신도 변화량", "[알고리즘] 최종 환각지수(HI)",
+    "[분석] 환각지수 감소량", "[분석] 확신도 변화량(보조)", "[알고리즘] 최종 환각지수(HI)",
     "[알고리즘_초기] 확신-근거 불일치", "[알고리즘_초기] 정서 기반 판단", "[알고리즘_초기] 출처 모호성", "[알고리즘_초기] 확신 대비 근거 부족", "[알고리즘_초기] 비일관성",
     "[알고리즘_최종] 확신-근거 불일치", "[알고리즘_최종] 정서 기반 판단", "[알고리즘_최종] 출처 모호성", "[알고리즘_최종] 확신 대비 근거 부족", "[알고리즘_최종] 비일관성",
     "[알고리즘_메타인지] 인지적 거리두기", "[알고리즘_메타인지] 반사실적 사고", "[알고리즘_메타인지] 지적 겸손", "[알고리즘_메타인지] 현실 모니터링",
@@ -921,7 +1004,6 @@ def render_host_panel():
                                    json.dumps(all_r,ensure_ascii=False,indent=2),
                                    "all_results.json","application/json",key="host_dl_all")
             # CSV 다운로드
-            csv_path = "results/all_results.csv"
             if files:
                 all_r = [json.load(open(fp, "r", encoding="utf-8")) for fp in files]
                 processed_data = [flatten_result_full(r) for r in all_r]
@@ -929,20 +1011,20 @@ def render_host_panel():
                 if processed_data:
                     import io, csv
                     output = io.StringIO()
-                    
+
                     present_keys_in_data = list(set(k for row in processed_data for k in row.keys()))
                     final_columns = [k for k in FULL_ORDERED_COLUMNS if k in present_keys_in_data]
                     extra_columns = sorted([k for k in present_keys_in_data if k not in final_columns])
                     final_columns.extend(extra_columns)
-                    
+
                     writer = csv.DictWriter(output, fieldnames=final_columns)
                     writer.writeheader()
                     writer.writerows(processed_data)
-                    
+
                     st.download_button(
-                        label="📊 전체 데이터 CSV 다운로드", 
-                        data=output.getvalue().encode('utf-8-sig'), 
-                        file_name="final_all_results_ordered.csv", 
+                        label="📊 전체 데이터 CSV 다운로드",
+                        data=output.getvalue().encode('utf-8-sig'),
+                        file_name="final_all_results_ordered.csv",
                         mime="text/csv",
                         key="host_dl_csv_final"
                     )
@@ -1015,16 +1097,15 @@ if st.session_state.get("host_auth"):
     p = st.session_state.get("phase","intro")
     st.markdown(f'<div style="background:#1a1a1a;border:1px solid #444;border-radius:8px;padding:8px 14px;margin-bottom:12px;font-size:13px;color:#fff;">🔧 <b>관리자</b> — 셀{c} | {p}</div>', unsafe_allow_html=True)
 
-# 참여 종료 — 사이드바 버튼 (기존 유지)
+# 참여 종료 — 사이드바 버튼
 if st.session_state.get("phase") in ("pre_survey", "task", "post_survey", "consent"):
     with st.sidebar:
         st.markdown("---")
         if st.button("🚪 참여 종료", key="withdraw_btn", use_container_width=True):
             st.session_state.phase = "withdrawn"; st.rerun()
 
-# 참여 종료 — 각 페이지 하단 우측 작은 링크 (각 페이지에서 호출)
+# 참여 종료 — 각 페이지 하단 우측 작은 링크
 def render_withdraw_button(key_suffix=""):
-    """페이지 하단 우측에 작은 종료 링크를 표시."""
     st.markdown("")
     col_left, col_right = st.columns([4, 1])
     with col_right:
@@ -1096,6 +1177,7 @@ elif st.session_state.phase == "consent":
 - 이메일: obkwon@khu.ac.kr
 
 또한 연구 참여와 관련된 권리 보호에 관한 문의는 소속 기관의 생명윤리심의위원회(IRB)로 문의하실 수 있습니다.
+경희대학교 서울캠퍼스 생명윤리심의위원회 02-961-2342
 
 ---
 
@@ -1119,7 +1201,7 @@ elif st.session_state.phase == "consent":
 
     render_withdraw_button("consent")
 
-# ── PHASE 1: 사전 설문 (표3 조절변수) ──
+# ── PHASE 1: 사전 설문 (첨부 설문 PDF 기준) ──
 elif st.session_state.phase == "pre_survey":
     st.title("📋 사전 설문")
     st.caption("모든 정보는 익명 처리됩니다.")
@@ -1128,9 +1210,8 @@ elif st.session_state.phase == "pre_survey":
         col1, col2 = st.columns(2)
         gender = col1.selectbox("성별", ["남성","여성","기타","응답 거부"])
         age_group = col2.selectbox("연령대", ["20대","30대","40대","50대 이상"])
-        ai_exp = st.selectbox("생성형 AI (ChatGPT, Claude 등) 사용 경험",
-                              ["없음","가끔 사용 (월 1~2회)","자주 사용 (주 1~2회)","매일 사용"])
-        ai_6mo = st.selectbox("최근 6개월 내 생성형 AI 사용 경험이 있습니까?", ["예","아니오"])
+        # 포함기준(논문 4.1: 최근 6개월 내 GenAI 사용 경험) 스크리닝 — 설문 PDF 외 유지
+        ai_6mo = st.selectbox("최근 6개월 내 생성형 AI(ChatGPT, Claude 등) 사용 경험이 있습니까?", ["예","아니오"])
 
         st.markdown("#### 2. 평소 사고 및 판단 습관 (1=전혀 그렇지 않다 / 7=매우 그렇다)")
 
@@ -1146,20 +1227,47 @@ elif st.session_state.phase == "pre_survey":
         aha3 = likert7("aha3", "AI의 출력은 대체로 검증이 필요하다고 생각한다.")
         aha4 = likert7("aha4", "AI는 사실과 다른 내용을 만들 수 있다고 본다.")
 
-        st.markdown("**과신 편향(Overconfidence)**")
+        st.markdown("**과신 성향(Overconfidence)**")  # 설문 PDF 기준 5문항
         oc1 = likert7("oc1", "나는 자신의 이상과 원칙에 대한 충성이 '개방적 사고'보다 더 중요하다고 생각한다.")
         oc2 = likert7("oc2", "나는 사람들을 나를 지지하는 사람과 그렇지 않은 사람으로 구분하는 경향이 있다.")
         oc3 = likert7("oc3", "자신의 생각을 바꾸는 것은 약함의 표시라고 생각한다.")
         oc4 = likert7("oc4", "나는 의사결정을 할 때, 그것이 논리적으로 타당한지보다 '옳다고 느끼는 것'이 더 중요하다.")
         oc5 = likert7("oc5", "내가 내리려는 결론에 반하는 증거는 크게 고려하지 않는 경향이 있다.")
-        oc6 = likert7("oc6", "증거가 내 판단에 반하더라도 나의 판단을 믿는 것이 중요하다.")
 
-        st.markdown("**정서 중시 성향(Beliefs about the Functionality of Emotion)**")
+        st.markdown("**정서 중시 성향(Beliefs about the Functionality of Emotion)**")  # 설문 PDF 기준 4문항
         emo1 = likert7("emo1", "감정은 그 사람의 삶의 방향을 정하는데 영향을 준다.")
         emo2 = likert7("emo2", "인간의 다양한 감정은 삶을 더욱 흥미롭게 만든다.")
         emo3 = likert7("emo3", "나는 감정을 느끼는 것이 건강하다고 믿는다.")
         emo4 = likert7("emo4", "나는 감정을 통해 배운다.")
-        emo5 = likert7("emo5", "나는 나의 감정이 판단에 영향을 준다고 느낀다.")
+
+        st.markdown("#### 3. 실험 시작 전 현재 상태 (1=전혀 그렇지 않다 / 7=매우 그렇다)")
+
+        st.markdown("**인지적 거리두기(self-distancing)**")
+        psd1 = likert7("psd1", "나는 내 생각을 제3자의 시각에서 바라볼 수 있다.")
+        psd2 = likert7("psd2", "나는 내 판단에 거리감을 두고 평가할 수 있다.")
+        psd3 = likert7("psd3", "나는 한걸음 물러나 감정과 판단을 분리하려 노력할 수 있다.")
+        psd4 = likert7("psd4", "나는 내 생각을 객관적으로 검토할 수 있다.")
+
+        st.markdown("**현실 모니터링(source monitoring)**")
+        psm1 = likert7("psm1", "나는 내가 획득한 정보가 어디에서 왔는지 확인하려고 한다.")
+        psm2 = likert7("psm2", "나는 사실과 막연한 추론을 구분하려고 한다.")
+        psm3 = likert7("psm3", "나는 사실과 상상을 구별할 수 있다.")
+        psm4 = likert7("psm4", "나는 내 판단의 근거가 되는 정보의 출처를 돌아본다.")
+
+        st.markdown("**반사실적 사고(counterfactual thinking)**")
+        pcf1 = likert7("pcf1", "나는 늘 내 생각이 틀릴 수 있다고 본다.")
+        pcf2 = likert7("pcf2", "정답은 나의 원래의 생각과 다를 수 있다.")
+        pcf3 = likert7("pcf3", "나는 다양한 해석을 시도한다.")
+        pcf4 = likert7("pcf4", "나는 하나의 결론에 쉽게 확신하는 오류가 없다.")
+
+        st.markdown("**지적 겸손(intellectual humility)**")
+        pih1 = likert7("pih1", "나는 많은 경우에 다른 의견에 대해서 배워야 함을 안다.")
+        pih2 = likert7("pih2", "나는 어떤 의견을 가지려고할 때 종종 내 생각이 틀릴 수도 있음을 안다.")
+        pih3 = likert7("pih3", "나는 합당한 이유가 있다면 내 견해를 수정할 의향을 가진다.")
+        pih4 = likert7("pih4", "나는 비록 몇몇 부분은 동의하지 않더라도 다른 이의 의견을 귀담아 들으려는 의지가 있다.")
+
+        st.markdown("#### 4. 추가 문항")
+        llm_halluc = likert7("llm_halluc", "LLM은 환각이 심하다고 보십니까? (1: 전혀 아니다 ~ 7: 매우 그렇다)")
 
         submitted = st.form_submit_button("다음으로", use_container_width=True, type="primary")
 
@@ -1171,15 +1279,25 @@ elif st.session_state.phase == "pre_survey":
         auto_id = "P_" + uuid.uuid4().hex[:8].upper()
         st.session_state.participant_id = auto_id
         st.session_state.pre_survey_data = {
-            "gender": gender, "age_group": age_group, "ai_experience": ai_exp,
+            "gender": gender, "age_group": age_group,
             "ebr": {"ebr1":ebr1,"ebr2":ebr2,"ebr3":ebr3,"ebr4":ebr4},
             "ebr_mean": round((ebr1+ebr2+ebr3+ebr4)/4, 2),
             "aha": {"aha1":aha1,"aha2":aha2,"aha3":aha3,"aha4":aha4},
             "aha_mean": round((aha1+aha2+aha3+aha4)/4, 2),
-            "oc": {"oc1":oc1,"oc2":oc2,"oc3":oc3,"oc4":oc4,"oc5":oc5,"oc6":oc6},
-            "oc_mean": round((oc1+oc2+oc3+oc4+oc5+oc6)/6, 2),
-            "emo": {"emo1":emo1,"emo2":emo2,"emo3":emo3,"emo4":emo4,"emo5":emo5},
-            "emo_mean": round((emo1+emo2+emo3+emo4+emo5)/5, 2),
+            "oc": {"oc1":oc1,"oc2":oc2,"oc3":oc3,"oc4":oc4,"oc5":oc5},
+            "oc_mean": round((oc1+oc2+oc3+oc4+oc5)/5, 2),
+            "emo": {"emo1":emo1,"emo2":emo2,"emo3":emo3,"emo4":emo4},
+            "emo_mean": round((emo1+emo2+emo3+emo4)/4, 2),
+            # 메타인지 baseline (현재형)
+            "psd": {"psd1":psd1,"psd2":psd2,"psd3":psd3,"psd4":psd4},
+            "psd_mean": round((psd1+psd2+psd3+psd4)/4, 2),
+            "psm": {"psm1":psm1,"psm2":psm2,"psm3":psm3,"psm4":psm4},
+            "psm_mean": round((psm1+psm2+psm3+psm4)/4, 2),
+            "pcf": {"pcf1":pcf1,"pcf2":pcf2,"pcf3":pcf3,"pcf4":pcf4},
+            "pcf_mean": round((pcf1+pcf2+pcf3+pcf4)/4, 2),
+            "pih": {"pih1":pih1,"pih2":pih2,"pih3":pih3,"pih4":pih4},
+            "pih_mean": round((pih1+pih2+pih3+pih4)/4, 2),
+            "llm_halluc": llm_halluc,
         }
 
         # 무작위 셀 배정
@@ -1201,14 +1319,14 @@ elif st.session_state.phase == "pre_survey":
 elif st.session_state.phase == "task":
     run_task_phase()
 
-# ── PHASE 3: 사후 설문 (표3 전체) ──
+# ── PHASE 3: 사후 설문 (첨부 설문 PDF 기준) ──
 elif st.session_state.phase == "post_survey":
     st.title("📋 사후 설문")
     st.caption("AI와의 대화 경험을 돌아보며 응답해 주세요.")
 
     with st.form("post_form"):
 
-        # ── 인지된 브레히트적 소외효과(Brechtian Alienation Effect) — 조작점검
+        # ── 인지된 브레히트적 소외효과 — 조작점검
         st.markdown("**인지된 브레히트적 소외효과(Brechtian Alienation Effect)**")
         st.caption("조작점검(manipulation check)")
         bae1 = likert7("bae1", "이 시스템은 내 생각을 낯설게 바라보게 하였다.")
@@ -1218,48 +1336,18 @@ elif st.session_state.phase == "post_survey":
 
         st.divider()
 
-        # ── 메타인지(meta-cognition) — 전반
+        # ── 메타인지 — 전반
         st.markdown("**메타인지(meta-cognition)**")
         mc1 = likert7("mc1", "시스템과 대화하면서 나는 내가 하려는 목표에 잘 부합해가고 있는지 점검할 수 있었다.")
         mc2 = likert7("mc2", "시스템과 대화하면서 나는 내 생각의 오류를 인식하고 수정하기 위해 내 지적 노력을 수반했다.")
         mc3 = likert7("mc3", "시스템과 대화하면서 스스로 나의 문제를 해결하기 위한 여러 옵션을 구사하는지 점검하게 되었다.")
         mc4 = likert7("mc4", "시스템과 대화하면서 나는 내 생각이 맞는지 스스로 자문할 수 있었다.")
 
-        # ── 인지적 거리두기(self-distancing)
-        st.markdown("**인지적 거리두기(self-distancing)**")
-        sd1 = likert7("sd1", "시스템을 사용하면서 나는 내 생각을 제3자의 시각에서 바라볼 수 있었다.")
-        sd2 = likert7("sd2", "시스템을 사용하면서 나는 내 판단에 거리감을 두고 평가할 수 있었다.")
-        sd3 = likert7("sd3", "시스템을 사용하면서 나는 한걸음 물러나 감정과 판단을 분리하려 노력할 수 있었다.")
-        sd4 = likert7("sd4", "시스템을 사용하면서 나는 내 생각을 객관적으로 검토할 수 있었다.")
-        sd5 = likert7("sd5", "시스템을 사용하면서 나는 내 판단이 일시적일 수 있다고 생각할 수 있었다.")
-
-        # ── 현실 모니터링(source monitoring)
-        st.markdown("**현실 모니터링(source monitoring)**")
-        sm1 = likert7("sm1", "시스템을 사용하면서 나는 내가 획득한 정보가 어디에서 왔는지 확인하려고 하였다.")
-        sm2 = likert7("sm2", "시스템을 사용하면서 나는 사실과 막연한 추론을 구분하려고 했다.")
-        sm3 = likert7("sm3", "시스템을 사용하면서 나는 사실과 상상을 구별할 수 있었다.")
-        sm4 = likert7("sm4", "시스템을 사용하면서 나는 내 판단의 근거가 되는 정보의 출처를 돌아보았다.")
-
-        # ── 반사실적 사고(counterfactual thinking)
-        st.markdown("**반사실적 사고(counterfactual thinking)**")
-        cf1 = likert7("cf1", "시스템을 사용하면서 나는 내 생각 외 다른 가능성을 고려할 수 있었다.")
-        cf2 = likert7("cf2", "시스템을 사용하면서 정답은 나의 원래의 생각과 다를 수 있음을 생각해볼 수 있었다.")
-        cf3 = likert7("cf3", "시스템을 사용하면서 나는 다양한 해석을 시도할 수 있었다.")
-        cf4 = likert7("cf4", "시스템을 사용하면서 나는 하나의 결론에 쉽게 확신하는 오류를 줄일 수 있었다.")
-
-        # ── 지적 겸손(intellectual humility)
-        st.markdown("**지적 겸손(intellectual humility)**")
-        ih1 = likert7("ih1", "시스템을 사용하면서 나는 많은 경우에 다른 의견에 대해서 배워야 함을 알게 되었다.")
-        ih2 = likert7("ih2", "시스템을 사용하면서 나는 어떤 의견을 가지려고할 때 종종 내 생각이 틀릴 수도 있음을 알게 되었다.")
-        ih3 = likert7("ih3", "시스템을 사용하면서 나는 합당한 이유가 있다면 내 견해를 수정할 의향을 가지게 되었다.")
-        ih4 = likert7("ih4", "시스템을 사용하면서 나는 비록 몇몇 부분은 동의하지 않더라도 다른 이의 의견을 귀담아 들으려는 의지가 생겼다.")
-
         st.divider()
 
-        # ── 환각지수(Hallucination Index) 자기보고
+        # ── 환각지수 자기보고
         st.markdown("#### 환각지수(Hallucination Index) — 자기보고")
 
-        # ── 확신 대비 근거 부족(lack of reasoning)
         st.markdown("**확신 대비 근거 부족(lack of reasoning)**")
         lr1 = likert7("lr1", "실험하는 동안 나에게 충분한 근거 없이도 결론을 내리는 경우가 있음을 알게 되었다.")
         lr2 = likert7("lr2", "실험하는 동안 내가 근거가 부족해도 확신을 가짐을 알게 되었다.")
@@ -1267,26 +1355,54 @@ elif st.session_state.phase == "post_survey":
         lr4 = likert7("lr4", "실험하는 동안 나는 설명 없이 결론을 내리는 경우가 있었다.")
         lr5 = likert7("lr5", "실험하는 동안 내 판단의 근거를 충분히 점검하지 않은 적이 있다.")
 
-        # ── 출처 모호성(Lack of Faithfulness)
         st.markdown("**출처 모호성(Lack of Faithfulness)**")
         lf1 = likert7("lf1", "실험하는 동안 나는 정보의 출처를 명확히 인식하지 못할 때가 있었다.")
         lf2 = likert7("lf2", "실험하는 동안 나는 어디서 얻은 정보인지 혼동하기도 했다.")
         lf3 = likert7("lf3", "실험하는 동안 나는 출처를 확인하지 않는 경우가 있었다.")
         lf4 = likert7("lf4", "실험하는 동안 나는 정보의 신뢰성을 검증하지 않는 경우가 있었다.")
 
-        # ── 정서 기반 판단(Affect Heuristic)
         st.markdown("**정서 기반 판단(Affect Heuristic)**")
         ah1 = likert7("ah1", "실험하는 동안 감정에 따라 판단이 달라진 적이 있다.")
         ah2 = likert7("ah2", "실험하는 동안 내가 좋아하는 정보에 더 확신을 가진 것을 알게 되었다.")
         ah3 = likert7("ah3", "실험하는 동안 내가 감정적으로 판단하는 경우가 있음을 알게 되었다.")
         ah4 = likert7("ah4", "실험하는 동안 나는 기분이 판단에 영향을 주는 것을 알게 되었다.")
 
-        # ── 비일관된 판단(Inconsistency)
         st.markdown("**비일관된 판단(Inconsistency)**")
         ic1 = likert7("ic1", "실험하는 동안 나는 상황에 따라 판단이 달라지기도 함을 알게 되었다.")
         ic2 = likert7("ic2", "실험하는 동안 나는 이전 판단과 다른 결론을 내리기도 함을 알게 되었다.")
         ic3 = likert7("ic3", "실험하는 동안 나는 일관된 기준을 유지하기 어려움을 알게 되었다.")
         ic4 = likert7("ic4", "실험하는 동안 나는 판단 기준이 변하였다.")
+
+        st.divider()
+        st.markdown("#### 실험을 마친 후 현재 상태")
+
+        # ── 인지적 거리두기 (설문 PDF 기준 4문항)
+        st.markdown("**인지적 거리두기(self-distancing)**")
+        sd1 = likert7("sd1", "시스템을 사용하면서 나는 내 생각을 제3자의 시각에서 바라볼 수 있었다.")
+        sd2 = likert7("sd2", "시스템을 사용하면서 나는 내 판단에 거리감을 두고 평가할 수 있었다.")
+        sd3 = likert7("sd3", "시스템을 사용하면서 나는 한걸음 물러나 감정과 판단을 분리하려 노력할 수 있었다.")
+        sd4 = likert7("sd4", "시스템을 사용하면서 나는 내 생각을 객관적으로 검토할 수 있었다.")
+
+        # ── 현실 모니터링 (sm3 문구 설문 PDF 반영)
+        st.markdown("**현실 모니터링(source monitoring)**")
+        sm1 = likert7("sm1", "시스템을 사용하면서 나는 내가 획득한 정보가 어디에서 왔는지 확인하려고 하였다.")
+        sm2 = likert7("sm2", "시스템을 사용하면서 나는 사실과 막연한 추론을 구분하려고 했다.")
+        sm3 = likert7("sm3", "시스템을 사용하면서 나는 사실과 상상을 구별하려는 생각을 가지게 되었다.")
+        sm4 = likert7("sm4", "시스템을 사용하면서 나는 내 판단의 근거가 되는 정보의 출처를 돌아보았다.")
+
+        # ── 반사실적 사고 (cf1 문구 설문 PDF 반영)
+        st.markdown("**반사실적 사고(counterfactual thinking)**")
+        cf1 = likert7("cf1", "시스템을 사용하면서 내 생각이 틀릴 수 있음을 알게 되었다.")
+        cf2 = likert7("cf2", "시스템을 사용하면서 정답은 나의 원래의 생각과 다를 수 있음을 생각해볼 수 있었다.")
+        cf3 = likert7("cf3", "시스템을 사용하면서 나는 다양한 해석을 시도할 수 있었다.")
+        cf4 = likert7("cf4", "시스템을 사용하면서 나는 하나의 결론에 쉽게 확신하는 오류를 줄일 수 있었다.")
+
+        # ── 지적 겸손
+        st.markdown("**지적 겸손(intellectual humility)**")
+        ih1 = likert7("ih1", "시스템을 사용하면서 나는 많은 경우에 다른 의견에 대해서 배워야 함을 알게 되었다.")
+        ih2 = likert7("ih2", "시스템을 사용하면서 나는 어떤 의견을 가지려고할 때 종종 내 생각이 틀릴 수도 있음을 알게 되었다.")
+        ih3 = likert7("ih3", "시스템을 사용하면서 나는 합당한 이유가 있다면 내 견해를 수정할 의향을 가지게 되었다.")
+        ih4 = likert7("ih4", "시스템을 사용하면서 나는 비록 몇몇 부분은 동의하지 않더라도 다른 이의 의견을 귀담아 들으려는 의지가 생겼다.")
 
         st.divider()
 
@@ -1312,12 +1428,13 @@ elif st.session_state.phase == "post_survey":
 
         st.divider()
 
-        # ── 창의성 지수(Index of Creativity) + 확신도 + 성찰
-        st.markdown("**창의성 지수(Index of Creativity)**")
+        # ── 결과물 + 확신도(보조) + 성찰
+        st.markdown("**최종 결과물 및 소감**")
         task_key = st.session_state.get("task_key","creative")
-        post_conf = st.slider("최종 결과물이 얼마나 완벽하다고 생각하시나요? (%)", 0, 100, 50, key="post_conf")
+        post_conf = st.slider("최종 결과물이 얼마나 완벽하다고 생각하시나요? (%)", 0, 100, 50, key="post_conf")  # 보조 탐색지표
         final_title = st.text_input(TASK_INFO[task_key]["final_label"], key="final_title")
         final_reason = st.text_area("최종 판단 이유", height=80, key="final_reason")
+        # 창의성(Index of Creativity)은 전문가 2인 평가가 정식 측정 — 아래 자기보고는 보조 참고용
         cr_orig = likert7("cr_orig", "결과물이 독창적이다.")
         cr_use  = likert7("cr_use",  "결과물이 유용하다.")
         cr_fit  = likert7("cr_fit",  "결과물이 과제에 적합하다.")
@@ -1354,8 +1471,8 @@ elif st.session_state.phase == "post_survey":
                 "metacognition": {
                     "general": {"mc1":mc1,"mc2":mc2,"mc3":mc3,"mc4":mc4},
                     "mc_mean": round((mc1+mc2+mc3+mc4)/4, 2),
-                    "cognitive_distancing": {"sd1":sd1,"sd2":sd2,"sd3":sd3,"sd4":sd4,"sd5":sd5},
-                    "sd_mean": round((sd1+sd2+sd3+sd4+sd5)/5, 2),
+                    "cognitive_distancing": {"sd1":sd1,"sd2":sd2,"sd3":sd3,"sd4":sd4},
+                    "sd_mean": round((sd1+sd2+sd3+sd4)/4, 2),
                     "source_monitoring": {"sm1":sm1,"sm2":sm2,"sm3":sm3,"sm4":sm4},
                     "sm_mean": round((sm1+sm2+sm3+sm4)/4, 2),
                     "counterfactual": {"cf1":cf1,"cf2":cf2,"cf3":cf3,"cf4":cf4},
@@ -1377,9 +1494,9 @@ elif st.session_state.phase == "post_survey":
                 "ci_mean": round((ci1+ci2+ci3+ci4+ci5+ci6+ci7)/7, 2),
                 "co_creation_effect": {"ce1":ce1,"ce2":ce2,"ce3":ce3,"ce4":ce4,"ce5":ce5,"ce6":ce6,"ce7":ce7},
                 "ce_mean": round((ce1+ce2+ce3+ce4+ce5+ce6+ce7)/7, 2),
-                "creativity": {"originality":cr_orig,"usefulness":cr_use,"fit":cr_fit},
+                "creativity": {"originality":cr_orig,"usefulness":cr_use,"fit":cr_fit},  # 보조 자기보고
                 "creativity_index": round((cr_orig+cr_use+cr_fit)/3, 2),
-                "confidence": {"pre":pre_conf,"post":post_conf,"change":post_conf-pre_conf},
+                "confidence": {"pre":pre_conf,"post":post_conf,"change":post_conf-pre_conf},  # 보조 탐색지표
                 "final_title": final_title,
                 "final_reason": final_reason,
                 "overall_satisfaction": overall_sat,
@@ -1405,13 +1522,12 @@ elif st.session_state.phase == "post_survey":
         with open(fname, "w", encoding="utf-8") as f:
             json.dump(result, f, ensure_ascii=False, indent=2)
 
-# ★ CSV 누적 저장 (실험 흐름순 정렬 및 한글 매핑 완결판)
+        # ★ CSV 누적 저장 (실험 흐름순 정렬 및 한글 매핑)
         import csv
-        csv_path = "results/all_results_korean.csv" 
-        
-        # 1. 원본 경로 -> 한글 변수명 매핑 (빠짐없이 수록)
+        csv_path = "results/all_results_korean.csv"
+
         RAW_MAPPING = {
-            # [1] 인트로 & 시스템 정보
+            # [1] 시스템 정보
             "participant_id": "[시스템] 참가자_ID",
             "timestamp": "[시스템] 참여_일시",
             "experiment_design.cell": "[시스템] 배정_셀",
@@ -1419,34 +1535,29 @@ elif st.session_state.phase == "post_survey":
             "experiment_design.task_type": "[시스템] 과제유형",
             "experiment_design.api_model": "[시스템] 사용_모델",
             "experiment_design.design": "[시스템] 실험_설계",
-            "task_order": "[시스템] 과제_수행_순서",
-            "fixed_cycles": "[시스템] 고정_대화_턴수",
+            "experiment_design.fixed_cycles": "[시스템] 고정_대화_턴수",
 
-            # [2] 사전 설문 (기본 정보 및 심리 척도)
+            # [2] 사전 설문
             "pre_survey.gender": "[사전] 성별",
             "pre_survey.age_group": "[사전] 연령대",
-            "pre_survey.ai_experience": "[사전] AI 경험",
-            "nfc1": "[사전_NFC1] 복잡한 문제 선호",
-            "nfc2": "[사전_NFC2] 깊은 사고 선호",
-            "nfc3": "[사전_NFC3] 사고 과정 즐김",
-            "nfc_mean": "[사전_NFC_평균]",
-            "pre_survey.ebr.ebr1": "[사전_근거1] 근거 중요성",
-            "pre_survey.ebr.ebr2": "[사전_근거2] 데이터 기반",
-            "pre_survey.ebr.ebr3": "[사전_근거3] 증거 확인",
-            "pre_survey.ebr.ebr4": "[사전_근거4] 직관보다 근거",
             "pre_survey.ebr_mean": "[사전_근거_평균]",
             "pre_survey.aha_mean": "[사전_AI환각인식_평균]",
             "pre_survey.oc_mean": "[사전_과신편향_평균]",
             "pre_survey.emo_mean": "[사전_정서중시_평균]",
+            "pre_survey.psd_mean": "[사전] 거리두기 평균",
+            "pre_survey.psm_mean": "[사전] 현실모니터링 평균",
+            "pre_survey.pcf_mean": "[사전] 반사실적사고 평균",
+            "pre_survey.pih_mean": "[사전] 지적겸손 평균",
+            "pre_survey.llm_halluc": "[사전] LLM환각인식(단일)",
 
-            # [3] 과제 및 실험 개입 시작
+            # [3] 과제 및 개입 시작
             "algorithm_data.initial_input": "[과제] 최초 주장 내용",
-            "pre_confidence": "[실험] 사전 확신도",
+            "post_survey.confidence.pre": "[실험] 사전 확신도(보조)",
             "algorithm_data.initial_hi.Hallucination_Index": "[알고리즘] 초기 환각지수(HI)",
 
-            # [4] 사후 설문 (반응 및 측정)
+            # [4] 사후 설문
             "post_survey.manipulation_check.bae_mean": "[사후] 소외효과 조작점검 평균",
-            "post_confidence": "[실험] 사후 확신도",
+            "post_survey.confidence.post": "[실험] 사후 확신도(보조)",
             "post_survey.metacognition.mc_mean": "[사후] 메타인지(전반) 평균",
             "post_survey.metacognition.sd_mean": "[사후] 메타인지(거리두기) 평균",
             "post_survey.metacognition.sm_mean": "[사후] 메타인지(출처모니터링) 평균",
@@ -1459,32 +1570,32 @@ elif st.session_state.phase == "post_survey":
             "post_survey.ci_mean": "[사후] 공동창출 의향 평균",
             "post_survey.ce_mean": "[사후] 공동창출 효과 평균",
 
-            # [5] 완료 및 최종 결과
+            # [5] 최종 결과
             "post_survey.final_title": "[최종] 결과물 제목",
             "post_survey.final_reason": "[최종] 판단 이유",
-            "reflection_text": "[최종] 주관적 성찰 기록",
-            "creativity_originality": "[결과] 독창성",
-            "creativity_usefulness": "[결과] 유용성",
-            "creativity_fit": "[결과] 적합성",
+            "post_survey.reflection": "[최종] 주관적 성찰 기록",
+            "post_survey.creativity.originality": "[결과] 독창성",
+            "post_survey.creativity.usefulness": "[결과] 유용성",
+            "post_survey.creativity.fit": "[결과] 적합성",
             "post_survey.creativity_index": "[결과] 창의성 종합지수",
 
-            # [6] 나머지 분석 지표 및 로그 (뒤로 배치)
+            # [6] 분석 지표 및 로그
             "algorithm_data.hi_change": "[분석] 환각지수 감소량",
-            "post_survey.confidence.change": "[분석] 확신도 변화량",
+            "post_survey.confidence.change": "[분석] 확신도 변화량(보조)",
             "algorithm_data.final_hi.Hallucination_Index": "[알고리즘] 최종 환각지수(HI)",
             "algorithm_data.transcript": "[로그] 대화 전체 기록"
         }
 
-        # 2. 📊 엑셀 칼럼 나열 순서 정의 (요청하신 순서대로 배치)
         COLUMN_ORDER = [
             "[시스템] 참가자_ID", "[시스템] 참여_일시", "[시스템] 배정_셀", "[시스템] 실험집단", "[시스템] 과제유형", "[시스템] 사용_모델",
-            "[사전] 성별", "[사전] 연령대", "[사전] AI 경험", "[사전_NFC_평균]", "[사전_근거_평균]", "[사전_AI환각인식_평균]", "[사전_과신편향_평균]", "[사전_정서중시_평균]",
-            "[과제] 최초 주장 내용", "[시스템] 과제_수행_순서", "[실험] 사전 확신도", "[알고리즘] 초기 환각지수(HI)",
-            "[사후] 소외효과 조작점검 평균", "[실험] 사후 확신도", "[사후] 메타인지(전반) 평균", "[사후] 메타인지(거리두기) 평균", "[사후] 메타인지(출처모니터링) 평균", "[사후] 메타인지(반사실적사고) 평균", "[사후] 메타인지(지적겸손) 평균",
+            "[사전] 성별", "[사전] 연령대", "[사전_근거_평균]", "[사전_AI환각인식_평균]", "[사전_과신편향_평균]", "[사전_정서중시_평균]",
+            "[사전] 거리두기 평균", "[사전] 현실모니터링 평균", "[사전] 반사실적사고 평균", "[사전] 지적겸손 평균", "[사전] LLM환각인식(단일)",
+            "[과제] 최초 주장 내용", "[실험] 사전 확신도(보조)", "[알고리즘] 초기 환각지수(HI)",
+            "[사후] 소외효과 조작점검 평균", "[실험] 사후 확신도(보조)", "[사후] 메타인지(전반) 평균", "[사후] 메타인지(거리두기) 평균", "[사후] 메타인지(출처모니터링) 평균", "[사후] 메타인지(반사실적사고) 평균", "[사후] 메타인지(지적겸손) 평균",
             "[사후] 자기보고 환각(근거부족) 평균", "[사후] 자기보고 환각(출처모호) 평균", "[사후] 자기보고 환각(정서판단) 평균", "[사후] 자기보고 환각(비일관성) 평균",
             "[사후] 공동창출 의향 평균", "[사후] 공동창출 효과 평균",
             "[최종] 결과물 제목", "[최종] 판단 이유", "[최종] 주관적 성찰 기록", "[결과] 독창성", "[결과] 유용성", "[결과] 적합성", "[결과] 창의성 종합지수",
-            "[분석] 환각지수 감소량", "[분석] 확신도 변화량", "[알고리즘] 최종 환각지수(HI)", "[로그] 대화 전체 기록"
+            "[분석] 환각지수 감소량", "[분석] 확신도 변화량(보조)", "[알고리즘] 최종 환각지수(HI)", "[로그] 대화 전체 기록"
         ]
 
         def _flatten_and_map(d, prefix=""):
@@ -1494,7 +1605,6 @@ elif st.session_state.phase == "post_survey":
                 if isinstance(v, dict):
                     items.update(_flatten_and_map(v, full_path + "."))
                 else:
-                    # 1순위: 전체 경로 매핑 / 2순위: 단어 매핑 / 3순위: 원래 키
                     mapped_key = RAW_MAPPING.get(full_path, RAW_MAPPING.get(full_path.split('.')[-1], full_path))
                     items[mapped_key] = json.dumps(v, ensure_ascii=False) if isinstance(v, list) else v
             return items
@@ -1502,13 +1612,12 @@ elif st.session_state.phase == "post_survey":
         flat = _flatten_and_map(result)
         file_exists = os.path.exists(csv_path)
         with open(csv_path, "a", newline="", encoding="utf-8-sig") as cf:
-            # COLUMN_ORDER에 정의된 순서대로만 저장하며, 정의되지 않은 변수는 무시하거나 뒤에 추가 가능
             writer = csv.DictWriter(cf, fieldnames=COLUMN_ORDER, extrasaction='ignore')
             if not file_exists:
                 writer.writeheader()
             writer.writerow(flat)
 
-        # ★ Google Sheets에도 저장 (전체 칼럼 — 관리자 CSV와 동일 구조)
+        # ★ Google Sheets 저장 (전체 칼럼 — 관리자 CSV와 동일 구조)
         try:
             ws = _get_worksheet("results")
             if ws:
@@ -1517,7 +1626,6 @@ elif st.session_state.phase == "post_survey":
                 has_header = existing and any(cell.strip() for cell in existing[0])
                 if not has_header:
                     ws.clear()
-                    # 정의된 칼럼 + 데이터에만 있는 추가 칼럼
                     present_keys = list(full_flat.keys())
                     gs_columns = [c for c in FULL_ORDERED_COLUMNS if c in present_keys]
                     extra = sorted([k for k in present_keys if k not in gs_columns])
