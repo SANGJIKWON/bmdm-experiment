@@ -1326,9 +1326,8 @@ elif st.session_state.phase == "post_survey":
 
     with st.form("post_form"):
 
-        # ── 인지된 브레히트적 소외효과 — 조작점검
-        st.markdown("**인지된 브레히트적 소외효과(Brechtian Alienation Effect)**")
-        st.caption("조작점검(manipulation check)")
+        # ── (연구자 주석) 조작점검 문항 — 참가자에게는 구성개념/목적 비노출
+        st.markdown("**AI와의 대화 경험**")
         bae1 = likert7("bae1", "이 시스템은 내 생각을 낯설게 바라보게 하였다.")
         bae2 = likert7("bae2", "이 시스템은 나의 판단을 한 발 떨어져서 보게 했다.")
         bae3 = likert7("bae3", "이 시스템은 내 사고를 비판적으로 검토하게 했다.")
