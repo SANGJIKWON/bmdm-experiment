@@ -519,15 +519,13 @@ class BMDMEngine:
                 "Inconsistency":round(inc,3),"Hallucination_Index":round(hi,3)}
 
     def Update_Claim(self, claim, mode, resp, group="experimental"):
-        """Claim 파라미터 점진 갱신 — 양 집단 공통 로직 + 실험집단 전략 보너스.
+        """Claim 파라미터 갱신 — 양 집단 동일한 측정 로직(조건 불변).
 
-        논문 3.5절 "조건 차이는 오직 프롬프팅 방식에만 있다"와 일치시키기 위해,
-        양 집단 모두 동일한 공통 갱신을 적용하고, BMDM 전략의 순효과는 실험집단의
-        추가 조정(_apply_strategy_bonus)에서만 발생시킨다.
+        논문 3.5절 "조건 차이는 오직 프롬프팅 방식에만 있다"에 맞춰,
+        HI 측정은 참가자 발화 텍스트만으로 두 집단 모두 동일하게 수행한다.
+        (group 파라미터는 하위호환용이며 측정에 영향을 주지 않는다.)
         """
         self._apply_common_update(claim, resp)
-        #if group == "experimental":
-        #    self._apply_strategy_bonus(claim, mode, resp)
 
     def _apply_common_update(self, claim, resp):
         """양 집단 공통: 참가자 발화 텍스트만으로 파라미터 갱신 (조건 불변 측정)."""
@@ -633,11 +631,6 @@ class BMDMEngine:
         if len(vals) < 2:
             return 0.05
         return min(0.30, (max(vals) - min(vals)) * 0.5)
-                
-        if len(vals) < 2:
-            return 0.05
-        # 통제집단과 실험집단 모두 발화 텍스트 내의 확률/확신 수치 변동으로만 일관성을 평가합니다.
-        return min(0.30, (max(vals) - min(vals)) * 0.5)
 
 # ============================================================
 # 과제 실행 (참가자: 수치 비노출)
@@ -735,23 +728,23 @@ def run_task_phase():
                 user_resp = st.text_area(f"응답을 입력하세요 ({remaining}회 남음):", height=100)
                 sent = st.form_submit_button("전송")
 
-                if sent and user_resp.strip():
-                    cur_mode = st.session_state[prefix+"cur_mode"]
+            if sent and user_resp.strip():
+                cur_mode = st.session_state[prefix+"cur_mode"]
 
-                    # [#1,#3] 측정은 참가자 자유응답 텍스트만 사용. 슬라이더 값은 HI에 주입하지 않음. group 안 넘김.
-                    engine.Update_Claim(claim, cur_mode, user_resp)
+                # [#1,#3] 측정은 참가자 자유응답 텍스트만 사용. 슬라이더 값은 HI에 주입하지 않음.
+                engine.Update_Claim(claim, cur_mode, user_resp)
 
-                    # [#2] 비일관성 산출용 — 각 턴의 '측정된' certainty를 기록 (양 집단 공통)
-                    state.history.append({"cycle": cycle_done+1, "mode": cur_mode,
-                                        "user_response": user_resp,
-                                        "claim_certainty": claim.certainty,
-                                        "probability_slider": prob_val})   # 슬라이더는 보조기록만
+                # [#2] 비일관성 산출용 — 각 턴의 '측정된' certainty를 기록 (양 집단 공통)
+                state.history.append({"cycle": cycle_done+1, "mode": cur_mode,
+                                      "user_response": user_resp,
+                                      "claim_certainty": claim.certainty,
+                                      "probability_slider": prob_val})
 
-                    # [#4] 메타인지 활성화 — 양 집단 동일하게 측정
-                    state.meta_cognitive_activation = evaluate_meta_cognitive(
-                        cur_mode, user_resp, state.meta_cognitive_activation)
+                # [#4] 메타인지 활성화 — 양 집단 동일하게 측정
+                state.meta_cognitive_activation = evaluate_meta_cognitive(
+                    cur_mode, user_resp, state.meta_cognitive_activation)
 
-                    metrics = engine.Calculate_HI(claim, state)
+                metrics = engine.Calculate_HI(claim, state)
                 state.hallucination_metrics = metrics
                 state.cycle_count += 1
                 transcript.append({
