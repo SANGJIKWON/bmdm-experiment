@@ -1543,6 +1543,16 @@ elif st.session_state.phase == "post_survey":
                 "manipulation_check": {
                     "bae": {"bae1":bae1,"bae2":bae2,"bae3":bae3,"bae4":bae4},
                     "bae_mean": round((bae1+bae2+bae3+bae4)/4, 2)},
+                "hallucination_self_report": {
+                    "unsupported_claim": {"lr1":lr1,"lr2":lr2,"lr3":lr3,"lr4":lr4,"lr5":lr5},
+                    "lr_mean": round((lr1+lr2+lr3+lr4+lr5)/5, 2),
+                    "source_ambiguity": {"lf1":lf1,"lf2":lf2,"lf3":lf3,"lf4":lf4},
+                    "lf_mean": round((lf1+lf2+lf3+lf4)/4, 2),
+                    "affect_heuristic": {"ah1":ah1,"ah2":ah2,"ah3":ah3,"ah4":ah4},
+                    "ah_mean": round((ah1+ah2+ah3+ah4)/4, 2),
+                    "inconsistency": {"ic1":ic1,"ic2":ic2,"ic3":ic3,"ic4":ic4},
+                    "ic_mean": round((ic1+ic2+ic3+ic4)/4, 2),
+                },
                 "metacognition": {
                     "general": {"mc1":mc1,"mc2":mc2,"mc3":mc3,"mc4":mc4},
                     "mc_mean": round((mc1+mc2+mc3+mc4)/4, 2),
@@ -1554,16 +1564,6 @@ elif st.session_state.phase == "post_survey":
                     "cf_mean": round((cf1+cf2+cf3+cf4)/4, 2),
                     "intellectual_humility": {"ih1":ih1,"ih2":ih2,"ih3":ih3,"ih4":ih4},
                     "ih_mean": round((ih1+ih2+ih3+ih4)/4, 2),
-                },
-                "hallucination_self_report": {
-                    "unsupported_claim": {"lr1":lr1,"lr2":lr2,"lr3":lr3,"lr4":lr4,"lr5":lr5},
-                    "lr_mean": round((lr1+lr2+lr3+lr4+lr5)/5, 2),
-                    "source_ambiguity": {"lf1":lf1,"lf2":lf2,"lf3":lf3,"lf4":lf4},
-                    "lf_mean": round((lf1+lf2+lf3+lf4)/4, 2),
-                    "affect_heuristic": {"ah1":ah1,"ah2":ah2,"ah3":ah3,"ah4":ah4},
-                    "ah_mean": round((ah1+ah2+ah3+ah4)/4, 2),
-                    "inconsistency": {"ic1":ic1,"ic2":ic2,"ic3":ic3,"ic4":ic4},
-                    "ic_mean": round((ic1+ic2+ic3+ic4)/4, 2),
                 },
                 "co_creation_intention": {"ci1":ci1,"ci2":ci2,"ci3":ci3,"ci4":ci4,"ci5":ci5,"ci6":ci6,"ci7":ci7},
                 "ci_mean": round((ci1+ci2+ci3+ci4+ci5+ci6+ci7)/7, 2),
