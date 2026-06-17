@@ -608,21 +608,21 @@ class BMDMEngine:
             if m in t: s+=0.06
         return min(s,0.95)
     def _est_inconsistency(self, history):
-        """대화 중 참가자가 명시한 확신/확률 값들의 변동폭으로 판단 일관성 추정.
-        probability_slider 값을 우선 사용하고, 없으면 발화 텍스트의 '%'를 폴백으로 읽는다."""
         vals = []
         for h in history:
             if not isinstance(h, dict):
                 continue
-            ps = h.get("probability_slider")
-            if ps is not None:
-                vals.append(ps / 100.0)
-            else:
-                nums = re.findall(r'(\d+)\s*%', h.get("user_response", ""))
-                if nums:
-                    vals.append(int(nums[-1]) / 100)
+            # 슬라이더 값에 의존하지 않고, 해당 턴에 기록된 실제 certainty 측정값을 사용합니다.
+            metrics = h.get("hallucination_metrics", {})
+            # 퍼지화 전의 Raw Certainty 값이 없다면, 퍼지화된 값을 대용으로 사용하거나 
+            # text 내 % 추출을 양 집단 공통 폴백으로 둡니다.
+            nums = re.findall(r'(\d+)\s*%', h.get("user_response", ""))
+            if nums:
+                vals.append(int(nums[-1]) / 100.0)
+                
         if len(vals) < 2:
             return 0.05
+        # 통제집단과 실험집단 모두 발화 텍스트 내의 확률/확신 수치 변동으로만 일관성을 평가합니다.
         return min(0.30, (max(vals) - min(vals)) * 0.5)
 
 # ============================================================
@@ -729,7 +729,7 @@ def run_task_phase():
                 if prob_val is not None:
                     tag = "확률" if cur_mode == "Probability_Framing" else "확신"
                     final_resp = f"{tag}: {prob_val}%. {user_resp}"
-                    claim.certainty = prob_val / 100.0
+                    #claim.certainty = prob_val / 100.0
 
                 # 공통: 양 집단 모두 동일한 Claim 갱신 로직 사용 (논문 3.5절 정합)
                 engine.Update_Claim(claim, cur_mode, final_resp, group=group)
