@@ -1269,56 +1269,64 @@ elif st.session_state.phase == "pre_survey":
 
         st.markdown("#### 2. 평소 사고 및 판단 습관 (1=전혀 그렇지 않다 / 7=매우 그렇다)")
 
-        st.markdown("**근거 기반 판단 성향(System 2 Thinking)**")
+        #st.markdown("**근거 기반 판단 성향(System 2 Thinking)**")
         ebr1 = likert7("ebr1", "나는 판단 시 근거를 중요하게 고려한다.")
         ebr2 = likert7("ebr2", "나는 데이터를 기반으로 결론을 내리려 한다.")
         ebr3 = likert7("ebr3", "나는 주장에 대한 객관적 증거를 확인한다.")
         ebr4 = likert7("ebr4", "나는 직관보다 근거를 우선시한다.")
+        st.write("") # 시각적 분리
 
-        st.markdown("**AI 환각 인식(Hallucination proneness on AI)**")
+        #st.markdown("**AI 환각 인식(Hallucination proneness on AI)**")
         aha1 = likert7("aha1", "일반적으로 AI는 틀린 정보를 생성할 수 있다고 생각한다.")
         aha2 = likert7("aha2", "일반적으로 AI의 결과를 그대로 신뢰하지 않는다.")
         aha3 = likert7("aha3", "AI의 출력은 대체로 검증이 필요하다고 생각한다.")
         aha4 = likert7("aha4", "AI는 사실과 다른 내용을 만들 수 있다고 본다.")
+        st.write("") # 시각적 분리
 
-        st.markdown("**과신 성향(Overconfidence)**")  # 설문 PDF 기준 5문항
+        #st.markdown("**과신 성향(Overconfidence)**")  # 설문 PDF 기준 5문항
         oc1 = likert7("oc1", "나는 자신의 이상과 원칙에 대한 충성이 '개방적 사고'보다 더 중요하다고 생각한다.")
         oc2 = likert7("oc2", "나는 사람들을 나를 지지하는 사람과 그렇지 않은 사람으로 구분하는 경향이 있다.")
         oc3 = likert7("oc3", "자신의 생각을 바꾸는 것은 약함의 표시라고 생각한다.")
         oc4 = likert7("oc4", "나는 의사결정을 할 때, 그것이 논리적으로 타당한지보다 '옳다고 느끼는 것'이 더 중요하다.")
         oc5 = likert7("oc5", "내가 내리려는 결론에 반하는 증거는 크게 고려하지 않는 경향이 있다.")
+        st.write("") # 시각적 분리
 
-        st.markdown("**정서 중시 성향(Beliefs about the Functionality of Emotion)**")  # 설문 PDF 기준 4문항
+        #st.markdown("**정서 중시 성향(Beliefs about the Functionality of Emotion)**")  # 설문 PDF 기준 4문항
         emo1 = likert7("emo1", "감정은 그 사람의 삶의 방향을 정하는데 영향을 준다.")
         emo2 = likert7("emo2", "인간의 다양한 감정은 삶을 더욱 흥미롭게 만든다.")
         emo3 = likert7("emo3", "나는 감정을 느끼는 것이 건강하다고 믿는다.")
         emo4 = likert7("emo4", "나는 감정을 통해 배운다.")
+        st.write("") # 시각적 분리
 
         st.markdown("#### 3. 실험 시작 전 현재 상태 (1=전혀 그렇지 않다 / 7=매우 그렇다)")
 
-        st.markdown("**인지적 거리두기(self-distancing)**")
+        #st.markdown("**인지적 거리두기(self-distancing)**")
         psd1 = likert7("psd1", "나는 내 생각을 제3자의 시각에서 바라볼 수 있다.")
         psd2 = likert7("psd2", "나는 내 판단에 거리감을 두고 평가할 수 있다.")
         psd3 = likert7("psd3", "나는 한걸음 물러나 감정과 판단을 분리하려 노력할 수 있다.")
         psd4 = likert7("psd4", "나는 내 생각을 객관적으로 검토할 수 있다.")
+        st.write("") # 시각적 분리
 
-        st.markdown("**현실 모니터링(source monitoring)**")
+        #st.markdown("**현실 모니터링(source monitoring)**")
         psm1 = likert7("psm1", "나는 내가 획득한 정보가 어디에서 왔는지 확인하려고 한다.")
         psm2 = likert7("psm2", "나는 사실과 막연한 추론을 구분하려고 한다.")
         psm3 = likert7("psm3", "나는 사실과 상상을 구별할 수 있다.")
         psm4 = likert7("psm4", "나는 내 판단의 근거가 되는 정보의 출처를 돌아본다.")
+        st.write("") # 시각적 분리
 
-        st.markdown("**반사실적 사고(counterfactual thinking)**")
+        #st.markdown("**반사실적 사고(counterfactual thinking)**")
         pcf1 = likert7("pcf1", "나는 늘 내 생각이 틀릴 수 있다고 본다.")
         pcf2 = likert7("pcf2", "정답은 나의 원래의 생각과 다를 수 있다.")
         pcf3 = likert7("pcf3", "나는 다양한 해석을 시도한다.")
         pcf4 = likert7("pcf4", "나는 하나의 결론에 쉽게 확신하는 오류가 없다.")
+        st.write("") # 시각적 분리
 
-        st.markdown("**지적 겸손(intellectual humility)**")
+        #st.markdown("**지적 겸손(intellectual humility)**")
         pih1 = likert7("pih1", "나는 많은 경우에 다른 의견에 대해서 배워야 함을 안다.")
         pih2 = likert7("pih2", "나는 어떤 의견을 가지려고할 때 종종 내 생각이 틀릴 수도 있음을 안다.")
         pih3 = likert7("pih3", "나는 합당한 이유가 있다면 내 견해를 수정할 의향을 가진다.")
         pih4 = likert7("pih4", "나는 비록 몇몇 부분은 동의하지 않더라도 다른 이의 의견을 귀담아 들으려는 의지가 있다.")
+        st.write("") # 시각적 분리
 
         st.markdown("#### 4. 추가 문항")
         llm_halluc = likert7("llm_halluc", "LLM은 환각이 심하다고 보십니까? (1: 전혀 아니다 ~ 7: 매우 그렇다)")
@@ -1390,7 +1398,7 @@ elif st.session_state.phase == "post_survey":
         st.divider()
 
         # ── 메타인지 — 전반
-        st.markdown("**메타인지(meta-cognition)**")
+        st.markdown("**대화 및 사고 과정**")
         mc1 = likert7("mc1", "시스템과 대화하면서 나는 내가 하려는 목표에 잘 부합해가고 있는지 점검할 수 있었다.")
         mc2 = likert7("mc2", "시스템과 대화하면서 나는 내 생각의 오류를 인식하고 수정하기 위해 내 지적 노력을 수반했다.")
         mc3 = likert7("mc3", "시스템과 대화하면서 스스로 나의 문제를 해결하기 위한 여러 옵션을 구사하는지 점검하게 되었다.")
@@ -1399,68 +1407,80 @@ elif st.session_state.phase == "post_survey":
         st.divider()
 
         # ── 환각지수 자기보고
-        st.markdown("#### 환각지수(Hallucination Index) — 자기보고")
 
-        st.markdown("**확신 대비 근거 부족(lack of reasoning)**")
+        st.markdown("**정보 및 근거 판단**")
+        #st.markdown("**확신 대비 근거 부족**")
         lr1 = likert7("lr1", "실험하는 동안 나에게 충분한 근거 없이도 결론을 내리는 경우가 있음을 알게 되었다.")
         lr2 = likert7("lr2", "실험하는 동안 내가 근거가 부족해도 확신을 가짐을 알게 되었다.")
         lr3 = likert7("lr3", "실험하는 동안 나의 주장에 대한 근거를 명확히 제시하지 못하는 경우가 있었다.")
         lr4 = likert7("lr4", "실험하는 동안 나는 설명 없이 결론을 내리는 경우가 있었다.")
         lr5 = likert7("lr5", "실험하는 동안 내 판단의 근거를 충분히 점검하지 않은 적이 있다.")
+        st.write("") # 시각적 분리
 
-        st.markdown("**출처 모호성(Lack of Faithfulness)**")
+        #st.markdown("**출처 모호성**")
         lf1 = likert7("lf1", "실험하는 동안 나는 정보의 출처를 명확히 인식하지 못할 때가 있었다.")
         lf2 = likert7("lf2", "실험하는 동안 나는 어디서 얻은 정보인지 혼동하기도 했다.")
         lf3 = likert7("lf3", "실험하는 동안 나는 출처를 확인하지 않는 경우가 있었다.")
         lf4 = likert7("lf4", "실험하는 동안 나는 정보의 신뢰성을 검증하지 않는 경우가 있었다.")
+        st.write("") # 시각적 분리
 
-        st.markdown("**정서 기반 판단(Affect Heuristic)**")
+        #st.markdown("**정서 기반 판단(Affect Heuristic)**")
         ah1 = likert7("ah1", "실험하는 동안 감정에 따라 판단이 달라진 적이 있다.")
         ah2 = likert7("ah2", "실험하는 동안 내가 좋아하는 정보에 더 확신을 가진 것을 알게 되었다.")
         ah3 = likert7("ah3", "실험하는 동안 내가 감정적으로 판단하는 경우가 있음을 알게 되었다.")
         ah4 = likert7("ah4", "실험하는 동안 나는 기분이 판단에 영향을 주는 것을 알게 되었다.")
+        st.write("") # 시각적 분리
 
-        st.markdown("**비일관된 판단(Inconsistency)**")
+        #st.markdown("**비일관된 판단(Inconsistency)**")
         ic1 = likert7("ic1", "실험하는 동안 나는 상황에 따라 판단이 달라지기도 함을 알게 되었다.")
         ic2 = likert7("ic2", "실험하는 동안 나는 이전 판단과 다른 결론을 내리기도 함을 알게 되었다.")
         ic3 = likert7("ic3", "실험하는 동안 나는 일관된 기준을 유지하기 어려움을 알게 되었다.")
         ic4 = likert7("ic4", "실험하는 동안 나는 판단 기준이 변하였다.")
+        st.write("") # 시각적 분리
 
         st.divider()
         st.markdown("#### 실험을 마친 후 현재 상태")
 
         # ── 인지적 거리두기 (설문 PDF 기준 4문항)
-        st.markdown("**인지적 거리두기(self-distancing)**")
+        #st.markdown("**인지적 거리두기(self-distancing)**")
         sd1 = likert7("sd1", "시스템을 사용하면서 나는 내 생각을 제3자의 시각에서 바라볼 수 있었다.")
         sd2 = likert7("sd2", "시스템을 사용하면서 나는 내 판단에 거리감을 두고 평가할 수 있었다.")
         sd3 = likert7("sd3", "시스템을 사용하면서 나는 한걸음 물러나 감정과 판단을 분리하려 노력할 수 있었다.")
         sd4 = likert7("sd4", "시스템을 사용하면서 나는 내 생각을 객관적으로 검토할 수 있었다.")
+        st.write("") # 시각적 분리
+
+        
 
         # ── 현실 모니터링 (sm3 문구 설문 PDF 반영)
-        st.markdown("**현실 모니터링(source monitoring)**")
+        #st.markdown("**현실 모니터링(source monitoring)**")
         sm1 = likert7("sm1", "시스템을 사용하면서 나는 내가 획득한 정보가 어디에서 왔는지 확인하려고 하였다.")
         sm2 = likert7("sm2", "시스템을 사용하면서 나는 사실과 막연한 추론을 구분하려고 했다.")
         sm3 = likert7("sm3", "시스템을 사용하면서 나는 사실과 상상을 구별하려는 생각을 가지게 되었다.")
         sm4 = likert7("sm4", "시스템을 사용하면서 나는 내 판단의 근거가 되는 정보의 출처를 돌아보았다.")
+        st.write("") # 시각적 분리
+
 
         # ── 반사실적 사고 (cf1 문구 설문 PDF 반영)
-        st.markdown("**반사실적 사고(counterfactual thinking)**")
+        #st.markdown("**반사실적 사고(counterfactual thinking)**")
         cf1 = likert7("cf1", "시스템을 사용하면서 내 생각이 틀릴 수 있음을 알게 되었다.")
         cf2 = likert7("cf2", "시스템을 사용하면서 정답은 나의 원래의 생각과 다를 수 있음을 생각해볼 수 있었다.")
         cf3 = likert7("cf3", "시스템을 사용하면서 나는 다양한 해석을 시도할 수 있었다.")
         cf4 = likert7("cf4", "시스템을 사용하면서 나는 하나의 결론에 쉽게 확신하는 오류를 줄일 수 있었다.")
+        st.write("") # 시각적 분리
+
 
         # ── 지적 겸손
-        st.markdown("**지적 겸손(intellectual humility)**")
+        #st.markdown("**지적 겸손(intellectual humility)**")
         ih1 = likert7("ih1", "시스템을 사용하면서 나는 많은 경우에 다른 의견에 대해서 배워야 함을 알게 되었다.")
         ih2 = likert7("ih2", "시스템을 사용하면서 나는 어떤 의견을 가지려고할 때 종종 내 생각이 틀릴 수도 있음을 알게 되었다.")
         ih3 = likert7("ih3", "시스템을 사용하면서 나는 합당한 이유가 있다면 내 견해를 수정할 의향을 가지게 되었다.")
         ih4 = likert7("ih4", "시스템을 사용하면서 나는 비록 몇몇 부분은 동의하지 않더라도 다른 이의 의견을 귀담아 들으려는 의지가 생겼다.")
 
+
         st.divider()
 
         # ── 공동창출 의향
-        st.markdown("**공동창출 의향**")
+        st.markdown("**향후 AI 활용 의향**")
         ci1 = likert7("ci1", "나는 GenAI를 활용하여 나의 목적에 맞는 결과를 만들기 위해 적극적으로 상호작용할 의향이 있다.")
         ci2 = likert7("ci2", "나는 GenAI의 작동 방식을 이해하기 위해 지속적으로 시도하고 학습하려 한다.")
         ci3 = likert7("ci3", "나는 더 나은 결과를 위해 GenAI에 추가적인 정보(맥락, 요구사항 등)를 제공할 의향이 있다.")
@@ -1470,7 +1490,7 @@ elif st.session_state.phase == "post_survey":
         ci7 = likert7("ci7", "나는 GenAI를 활용하여 나의 문제 해결 과정에 적극적으로 참여하려 한다.")
 
         # ── 공동창출 효과
-        st.markdown("**공동창출 효과**")
+        st.markdown("**협업 및 대화효과**")
         ce1 = likert7("ce1", "나는 GenAI로부터 결과 개선을 위한 유용한 피드백을 제공받았다.")
         ce2 = likert7("ce2", "나는 GenAI를 활용하여 나의 생각을 더욱 명확히 표현할 수 있었다.")
         ce3 = likert7("ce3", "나는 GenAI를 통해 문제 해결 방안을 스스로 탐색할 수 있었다.")
