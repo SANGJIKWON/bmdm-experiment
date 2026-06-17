@@ -589,14 +589,22 @@ class BMDMEngine:
             if m in t: s+=0.06
         return min(s,0.95)
     def _est_inconsistency(self, history):
+        """대화 중 참가자가 명시한 확신/확률 값들의 변동폭으로 판단 일관성 추정.
+        probability_slider 값을 우선 사용하고, 없으면 발화 텍스트의 '%'를 폴백으로 읽는다."""
         vals = []
         for h in history:
-            nums = re.findall(r'(\d+)\s*%', h.get("user_response", "") if isinstance(h, dict) else "")
-            if nums:
-                vals.append(int(nums[-1]) / 100)
+            if not isinstance(h, dict):
+                continue
+            ps = h.get("probability_slider")
+            if ps is not None:
+                vals.append(ps / 100.0)
+            else:
+                nums = re.findall(r'(\d+)\s*%', h.get("user_response", ""))
+                if nums:
+                    vals.append(int(nums[-1]) / 100)
         if len(vals) < 2:
             return 0.05
-        return min(0.30, abs(vals[0] - vals[-1]) * 0.5)
+        return min(0.30, (max(vals) - min(vals)) * 0.5)
 
 # ============================================================
 # 과제 실행 (참가자: 수치 비노출)
@@ -706,6 +714,11 @@ def run_task_phase():
 
                 # 공통: 양 집단 모두 동일한 Claim 갱신 로직 사용 (논문 3.5절 정합)
                 engine.Update_Claim(claim, cur_mode, final_resp, group=group)
+                # ★ 비일관성(Inconsistency) 산출용 — 발화·슬라이더 값을 state.history에 누적
+                #    (Calculate_HI가 state.history의 확신/확률 값 변동폭으로 일관성을 계산)
+                state.history.append({"cycle": cycle_done+1, "mode": cur_mode,
+                                      "user_response": final_resp,
+                                      "probability_slider": prob_val})
                 # 실험집단 전용: 메타인지 활성화 측정 (BMDM 내부 모니터링 — 논문 3.1절 표1)
                 if group == "experimental":
                     state.meta_cognitive_activation = evaluate_meta_cognitive(
