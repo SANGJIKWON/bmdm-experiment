@@ -526,11 +526,11 @@ class BMDMEngine:
         추가 조정(_apply_strategy_bonus)에서만 발생시킨다.
         """
         self._apply_common_update(claim, resp)
-        if group == "experimental":
-            self._apply_strategy_bonus(claim, mode, resp)
+        #if group == "experimental":
+        #    self._apply_strategy_bonus(claim, mode, resp)
 
     def _apply_common_update(self, claim, resp):
-        """양 집단 공통: 응답 텍스트 기반 보수적 파라미터 갱신 (카테고리당 ±0.04)."""
+        """양 집단 공통: 참가자 발화 텍스트만으로 파라미터 갱신 (조건 불변 측정)."""
         t = resp.lower()
         STEP = 0.04
         if any(k in t for k in ["데이터","근거","통계","연구","조사","실험","자료","보고서","문헌"]):
@@ -545,6 +545,21 @@ class BMDMEngine:
             claim.affect_intensity = min(1.0, claim.affect_intensity + STEP)
         elif any(k in t for k in ["객관","중립","냉정","사실적"]):
             claim.affect_intensity = max(0.0, claim.affect_intensity - STEP)
+
+        # ── 기존 _apply_strategy_bonus의 내용 탐지를 mode/집단과 무관하게 통합 ──
+        if any(k in t for k in ["외부","제3자","다를 수","다르게","관점에서"]):       # 외재화
+            claim.certainty = max(0.0, claim.certainty - 0.10)
+            claim.source_ambiguity = max(0.0, claim.source_ambiguity - 0.06)
+        if any(k in t for k in ["반대","다른 해석","배타","지배적","부정적"]):          # 대안관점
+            claim.certainty = max(0.0, claim.certainty - 0.16)
+            claim.affect_intensity = max(0.0, claim.affect_intensity - 0.05)
+        if any(k in t for k in ["반증","판단 기준","수정되어야"]):                      # 근거 재구성
+            claim.evidence_status = min(1.0, claim.evidence_status + 0.20)
+
+        # 참가자가 '직접 텍스트로' 확률/확신 수치를 진술한 경우만 반영 (슬라이더 주입값 아님)
+        nums = re.findall(r'(\d+)\s*%', resp)
+        if nums:
+            claim.certainty = min(max(int(nums[-1]) / 100.0, 0.0), 1.0)
 
     def _apply_strategy_bonus(self, claim, mode, resp):
         """실험집단 전용: BMDM 전략별 추가 조정."""
@@ -612,13 +627,12 @@ class BMDMEngine:
         for h in history:
             if not isinstance(h, dict):
                 continue
-            # 슬라이더 값에 의존하지 않고, 해당 턴에 기록된 실제 certainty 측정값을 사용합니다.
-            metrics = h.get("hallucination_metrics", {})
-            # 퍼지화 전의 Raw Certainty 값이 없다면, 퍼지화된 값을 대용으로 사용하거나 
-            # text 내 % 추출을 양 집단 공통 폴백으로 둡니다.
-            nums = re.findall(r'(\d+)\s*%', h.get("user_response", ""))
-            if nums:
-                vals.append(int(nums[-1]) / 100.0)
+            c = h.get("claim_certainty", None)
+            if c is not None:
+                vals.append(float(c))
+        if len(vals) < 2:
+            return 0.05
+        return min(0.30, (max(vals) - min(vals)) * 0.5)
                 
         if len(vals) < 2:
             return 0.05
@@ -721,28 +735,23 @@ def run_task_phase():
                 user_resp = st.text_area(f"응답을 입력하세요 ({remaining}회 남음):", height=100)
                 sent = st.form_submit_button("전송")
 
-            if sent and user_resp.strip():
-                cur_mode = st.session_state[prefix+"cur_mode"]
+                if sent and user_resp.strip():
+                    cur_mode = st.session_state[prefix+"cur_mode"]
 
-                # 슬라이더 값을 응답·certainty에 반영
-                final_resp = user_resp
-                if prob_val is not None:
-                    tag = "확률" if cur_mode == "Probability_Framing" else "확신"
-                    final_resp = f"{tag}: {prob_val}%. {user_resp}"
-                    #claim.certainty = prob_val / 100.0
+                    # [#1,#3] 측정은 참가자 자유응답 텍스트만 사용. 슬라이더 값은 HI에 주입하지 않음. group 안 넘김.
+                    engine.Update_Claim(claim, cur_mode, user_resp)
 
-                # 공통: 양 집단 모두 동일한 Claim 갱신 로직 사용 (논문 3.5절 정합)
-                engine.Update_Claim(claim, cur_mode, final_resp, group=group)
-                # ★ 비일관성(Inconsistency) 산출용 — 발화·슬라이더 값을 state.history에 누적
-                #    (Calculate_HI가 state.history의 확신/확률 값 변동폭으로 일관성을 계산)
-                state.history.append({"cycle": cycle_done+1, "mode": cur_mode,
-                                      "user_response": final_resp,
-                                      "probability_slider": prob_val})
-                # 실험집단 전용: 메타인지 활성화 측정 (BMDM 내부 모니터링 — 논문 3.1절 표1)
-                if group == "experimental":
+                    # [#2] 비일관성 산출용 — 각 턴의 '측정된' certainty를 기록 (양 집단 공통)
+                    state.history.append({"cycle": cycle_done+1, "mode": cur_mode,
+                                        "user_response": user_resp,
+                                        "claim_certainty": claim.certainty,
+                                        "probability_slider": prob_val})   # 슬라이더는 보조기록만
+
+                    # [#4] 메타인지 활성화 — 양 집단 동일하게 측정
                     state.meta_cognitive_activation = evaluate_meta_cognitive(
-                        cur_mode, final_resp, state.meta_cognitive_activation)
-                metrics = engine.Calculate_HI(claim, state)
+                        cur_mode, user_resp, state.meta_cognitive_activation)
+
+                    metrics = engine.Calculate_HI(claim, state)
                 state.hallucination_metrics = metrics
                 state.cycle_count += 1
                 transcript.append({
