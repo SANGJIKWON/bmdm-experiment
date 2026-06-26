@@ -39,6 +39,19 @@ CELLS = {
     "D": {"group": "control",      "task": "creative", "label": "통제 + 창의적 과제"},
 }
 
+# ── 한국 표준시(KST, UTC+9) ──
+# Streamlit Community Cloud 서버는 UTC로 동작하므로 datetime.now()는 한국시간보다 9시간 느림.
+# KST는 서머타임이 없어 고정 +9 오프셋이 연중 항상 정확하다.
+KST = datetime.timezone(datetime.timedelta(hours=9))
+
+def now_kst():
+    """현재 한국 시각(timezone-aware)."""
+    return datetime.datetime.now(KST)
+
+def now_kst_str():
+    """기록용 한국 시각 문자열 (예: 2026-06-25 20:55:44)."""
+    return now_kst().strftime("%Y-%m-%d %H:%M:%S")
+
 # ============================================================
 # Google Sheets 연결 (Streamlit Community Cloud용)
 # ============================================================
@@ -884,21 +897,44 @@ def get_korean_name(key_path):
         if "inconsistency" in key_str: return "[알고리즘_최종] 비일관성"
     return f"[미확인] {last_part}"
 
-FULL_ORDERED_COLUMNS = [
-    "[시스템] 참가자_ID", "[시스템] 참여_일시", "[시스템] 배정_셀", "[시스템] 실험집단", "[시스템] 과제유형", "[시스템] 사용_모델", "[시스템] 과제_수행_순서",
-    "[사전] 성별", "[사전] 연령대", "[사전_근거_평균]", "[사전_AI환각인식_평균]", "[사전_과신편향_평균]", "[사전_정서중시_평균]",
-    "[사전] 거리두기 평균", "[사전] 현실모니터링 평균", "[사전] 반사실적사고 평균", "[사전] 지적겸손 평균", "[사전] LLM환각인식(단일)",
+# ============================================================
+# 표준 칼럼 순서 (CANONICAL) — 설문 화면 제시 순서와 1:1 일치
+# flatten_result_full(result) 가 생성하는 150개 키의 정확한 순열.
+# (중복 0 / 누락 0 / 발명 0 — 검증 완료)
+# CSV·구글시트 양쪽이 모두 이 순서를 단일 기준으로 사용한다.
+# ============================================================
+CANONICAL_COLUMNS = [
+    "[시스템] 참가자_ID", "[시스템] 참여_일시", "[시스템] 배정_셀", "[시스템] 실험집단", "[시스템] 과제유형", "[시스템] 사용_모델", "[시스템] 실험_설계", "[시스템] 고정_대화_턴수",
+    "[사전] 성별", "[사전] 연령대",
+    "[사전_근거1] 근거 중요성", "[사전_근거2] 데이터 기반", "[사전_근거3] 증거 확인", "[사전_근거4] 직관보다 근거", "[사전_근거_평균]",
+    "[사전_AI환각인식1] AI 틀린 정보", "[사전_AI환각인식2] 무조건 신뢰 안함", "[사전_AI환각인식3] 검증 필요", "[사전_AI환각인식4] 사실과 다른 내용", "[사전_AI환각인식_평균]",
+    "[사전_과신편향1] 이상/원칙 충성", "[사전_과신편향2] 지지자 구분", "[사전_과신편향3] 생각변화는 약함", "[사전_과신편향4] 논리보다 느낌", "[사전_과신편향5] 반대증거 무시", "[사전_과신편향_평균]",
+    "[사전_정서중시1] 삶 방향 영향", "[사전_정서중시2] 삶을 흥미롭게", "[사전_정서중시3] 느끼는것이 건강", "[사전_정서중시4] 감정 통해 배움", "[사전_정서중시_평균]",
+    "[사전_거리1] 제3자 시각", "[사전_거리2] 거리감 평가", "[사전_거리3] 감정/판단 분리", "[사전_거리4] 객관적 검토", "[사전] 거리두기 평균",
+    "[사전_현실1] 출처 확인", "[사전_현실2] 사실/추론 구분", "[사전_현실3] 사실/상상 구별", "[사전_현실4] 근거출처 성찰", "[사전] 현실모니터링 평균",
+    "[사전_반사실1] 틀릴 수 있음", "[사전_반사실2] 다른 정답", "[사전_반사실3] 다양한 해석", "[사전_반사실4] 확신오류 없음", "[사전] 반사실적사고 평균",
+    "[사전_지겸1] 학습 필요성", "[사전_지겸2] 오류 인정", "[사전_지겸3] 수정 의향", "[사전_지겸4] 경청 의지", "[사전] 지적겸손 평균",
+    "[사전] LLM환각인식(단일)",
     "[과제] 최초 주장 내용", "[실험] 사전 확신도(보조)", "[알고리즘] 초기 환각지수(HI)",
-    "[사후] 소외효과 조작점검 평균", "[실험] 사후 확신도(보조)",
-    "[사후] 메타인지(전반) 평균", "[사후] 메타인지(거리두기) 평균", "[사후] 메타인지(출처모니터링) 평균", "[사후] 메타인지(반사실적사고) 평균", "[사후] 메타인지(지적겸손) 평균",
-    "[사후] 자기보고 환각(근거부족) 평균", "[사후] 자기보고 환각(출처모호) 평균", "[사후] 자기보고 환각(정서판단) 평균", "[사후] 자기보고 환각(비일관성) 평균",
-    "[사후] 공동창출 의향 평균", "[사후] 공동창출 효과 평균",
-    "[최종] 결과물 제목", "[최종] 판단 이유", "[최종] 주관적 성찰 기록", "[결과] 독창성", "[결과] 유용성", "[결과] 적합성", "[결과] 창의성 종합지수", "[결과] 전체 대화 만족도",
+    "[사후_소외1] 낯설게 바라봄", "[사후_소외2] 떨어져서 봄", "[사후_소외3] 비판적 검토", "[사후_소외4] 자동적반응 멈춤", "[사후] 소외효과 조작점검 평균",
+    "[사후_메타1] 목표 부합 점검", "[사후_메타2] 오류 인식", "[사후_메타3] 옵션 점검", "[사후_메타4] 타당성 자문", "[사후] 메타인지(전반) 평균",
+    "[사후_환각_근거부족1] 결론 인지", "[사후_환각_근거부족2] 확신 인지", "[사후_환각_근거부족3] 제시 미흡", "[사후_환각_근거부족4] 설명 없음", "[사후_환각_근거부족5] 점검 미흡", "[사후] 자기보고 환각(근거부족) 평균",
+    "[사후_환각_출처모호1] 불명확", "[사후_환각_출처모호2] 혼동", "[사후_환각_출처모호3] 미확인", "[사후_환각_출처모호4] 검증 미흡", "[사후] 자기보고 환각(출처모호) 평균",
+    "[사후_환각_정서판단1] 판단 변화", "[사후_환각_정서판단2] 선호 확신", "[사후_환각_정서판단3] 판단 인지", "[사후_환각_정서판단4] 기분 영향", "[사후] 자기보고 환각(정서판단) 평균",
+    "[사후_환각_비일관성1] 판단 변화", "[사후_환각_비일관성2] 다른 결론", "[사후_환각_비일관성3] 기준 유지", "[사후_환각_비일관성4] 기준 변화", "[사후] 자기보고 환각(비일관성) 평균",
+    "[사후_거리1] 제3자 시각", "[사후_거리2] 거리감 유지", "[사후_거리3] 감정/판단 분리", "[사후_거리4] 객관적 검토", "[사후] 메타인지(거리두기) 평균",
+    "[사후_출처1] 출처 확인", "[사후_출처2] 사실/추론 구분", "[사후_출처3] 사실/상상 구별", "[사후_출처4] 근거출처 성찰", "[사후] 메타인지(출처모니터링) 평균",
+    "[사후_반사실1] 틀릴 수 있음", "[사후_반사실2] 다른 정답 인지", "[사후_반사실3] 다양한 해석", "[사후_반사실4] 확신오류 감소", "[사후] 메타인지(반사실적사고) 평균",
+    "[사후_지적겸손1] 학습 필요성", "[사후_지적겸손2] 오류 인정", "[사후_지적겸손3] 수정 의향", "[사후_지적겸손4] 경청 의지", "[사후] 메타인지(지적겸손) 평균",
+    "[사후_공동창출의향1] 적극 상호작용", "[사후_공동창출의향2] 학습 시도", "[사후_공동창출의향3] 추가정보 제공", "[사후_공동창출의향4] 결과 수정개선", "[사후_공동창출의향5] 시간노력 투자", "[사후_공동창출의향6] 공동 발전", "[사후_공동창출의향7] 문제해결 참여", "[사후] 공동창출 의향 평균",
+    "[사후_공동창출효과1] 유용한 피드백", "[사후_공동창출효과2] 명확한 표현", "[사후_공동창출효과3] 방안 탐색", "[사후_공동창출효과4] 적극 반응", "[사후_공동창출효과5] 좋은 해결책", "[사후_공동창출효과6] 반복 수정발전", "[사후_공동창출효과7] 더 나은 결과", "[사후] 공동창출 효과 평균",
+    "[실험] 사후 확신도(보조)", "[결과] 독창성", "[결과] 유용성", "[결과] 적합성", "[결과] 창의성 종합지수",
+    "[최종] 결과물 제목", "[최종] 판단 이유", "[결과] 전체 대화 만족도", "[최종] 주관적 성찰 기록",
     "[분석] 환각지수 감소량", "[분석] 확신도 변화량(보조)", "[알고리즘] 최종 환각지수(HI)",
-    "[알고리즘_초기] 확신-근거 불일치", "[알고리즘_초기] 정서 기반 판단", "[알고리즘_초기] 출처 모호성", "[알고리즘_초기] 확신 대비 근거 부족", "[알고리즘_초기] 비일관성",
-    "[알고리즘_최종] 확신-근거 불일치", "[알고리즘_최종] 정서 기반 판단", "[알고리즘_최종] 출처 모호성", "[알고리즘_최종] 확신 대비 근거 부족", "[알고리즘_최종] 비일관성",
-    "[알고리즘_메타인지] 인지적 거리두기", "[알고리즘_메타인지] 반사실적 사고", "[알고리즘_메타인지] 지적 겸손", "[알고리즘_메타인지] 현실 모니터링",
-    "[시스템] 진행된_대화_턴수", "[시스템] 고정_대화_턴수", "[시스템] 실험_설계", "[로그] 대화 전체 기록"
+    "[알고리즘_초기] 확신 대비 근거 부족", "[알고리즘_초기] 출처 모호성", "[알고리즘_초기] 정서 기반 판단", "[알고리즘_초기] 확신-근거 불일치", "[알고리즘_초기] 비일관성",
+    "[알고리즘_최종] 확신 대비 근거 부족", "[알고리즘_최종] 출처 모호성", "[알고리즘_최종] 정서 기반 판단", "[알고리즘_최종] 확신-근거 불일치", "[알고리즘_최종] 비일관성",
+    "[알고리즘_메타인지] 인지적 거리두기", "[알고리즘_메타인지] 현실 모니터링", "[알고리즘_메타인지] 반사실적 사고", "[알고리즘_메타인지] 지적 겸손",
+    "[시스템] 진행된_대화_턴수", "[로그] 대화 전체 기록",
 ]
 
 def flatten_result_full(d, prefix=""):
@@ -912,6 +948,73 @@ def flatten_result_full(d, prefix=""):
             mapped_key = get_korean_name(full_path)
             items[mapped_key] = json.dumps(v, ensure_ascii=False) if isinstance(v, list) else v
     return items
+
+# ============================================================
+# 결과 저장 헬퍼 — CSV·구글시트 공통 (단일 기준: CANONICAL_COLUMNS)
+# ============================================================
+def _cell_str(v):
+    """셀 문자열화 (None→'')."""
+    return "" if v is None else str(v)
+
+def _row_dict_from_result(result):
+    """result → {한글칼럼명: 값} 평탄화. 관리자 사전설문 우회 흔적은 제거."""
+    flat = flatten_result_full(result)
+    flat.pop("[미확인] admin_skip", None)
+    return flat
+
+def _desired_header(flat, old_header):
+    """무손실 헤더 = CANONICAL + (flat의 신규 키) + (구헤더에만 있던 키).
+    어떤 값도 버려지지 않도록 모든 키를 보존하되, 표준 칼럼을 앞에 둔다."""
+    header = list(CANONICAL_COLUMNS)
+    seen = set(header)
+    for k in flat.keys():           # 표준에 없는 신규 키 보존
+        if k and k not in seen:
+            seen.add(k); header.append(k)
+    for k in old_header:            # 과거 헤더에만 있던 키도 보존
+        if k and k not in seen:
+            seen.add(k); header.append(k)
+    return header
+
+def _save_row_to_gsheet(result):
+    """구글시트 results 탭에 1행 추가.
+    기존 헤더가 표준과 다르면(구버전) 기존 데이터를 '칼럼명 기준'으로
+    새 순서에 무손실 재배치한 뒤 전체를 다시 기록한다.
+    - clear() 없이 덮어쓰기 → 중간 실패 시에도 데이터 공백이 생기지 않음
+    - value_input_option 미지정(기본 RAW) → 일시 문자열이 날짜로 변환되지 않음
+    """
+    from gspread.utils import rowcol_to_a1
+    ws = _get_worksheet("results")
+    if not ws:
+        return
+    flat = _row_dict_from_result(result)
+    existing = ws.get_all_values()
+    has_header = bool(existing) and any(c.strip() for c in existing[0])
+    old_header = existing[0] if has_header else []
+    desired = _desired_header(flat, old_header)
+    new_row = [_cell_str(flat.get(col, "")) for col in desired]
+
+    # 시트 폭 확보 (절대 축소되지 않도록 하한 적용)
+    try:
+        ws.resize(rows=max(len(existing) + 10, 1000), cols=max(len(desired) + 5, 26))
+    except Exception:
+        pass
+
+    # 헤더가 이미 표준과 동일 → 단순 추가
+    if has_header and old_header == desired:
+        ws.append_row(new_row)
+        return
+
+    # 헤더가 다르거나 없음 → 기존 행을 칼럼명 기준으로 재매핑하여 전체 재기록
+    migrated = [desired]
+    for row in existing[1:]:
+        if not any(c.strip() for c in row):
+            continue  # 빈 행 건너뜀
+        rowmap = {old_header[i]: row[i] for i in range(min(len(old_header), len(row)))}
+        migrated.append([_cell_str(rowmap.get(col, "")) for col in desired])
+    migrated.append(new_row)
+
+    end = rowcol_to_a1(len(migrated), len(desired))
+    ws.update(f"A1:{end}", migrated)
 
 # ============================================================
 # 호스트 관리 패널
@@ -1058,22 +1161,21 @@ def render_host_panel():
             # CSV 다운로드
             if files:
                 all_r = [json.load(open(fp, "r", encoding="utf-8")) for fp in files]
-                processed_data = [flatten_result_full(r) for r in all_r]
+                processed_data = [_row_dict_from_result(r) for r in all_r]
 
                 if processed_data:
                     import io, csv
                     output = io.StringIO()
 
-                    # 구글시트와 동일하게 삽입순(척도별 묶음) 정렬 — 각 행의 자연 순서를
-                    # first-seen 방식으로 합쳐 칼럼 순서를 만든다 (means-우선/가나다순 아님)
-                    final_columns = []
-                    seen = set()
+                    # 저장 경로와 동일한 표준 순서(CANONICAL) + 행에만 있는 신규 키 보존 → 무손실
+                    final_columns = list(CANONICAL_COLUMNS)
+                    seen = set(final_columns)
                     for row in processed_data:
                         for k in row.keys():
-                            if k not in seen:
+                            if k and k not in seen:
                                 seen.add(k); final_columns.append(k)
 
-                    writer = csv.DictWriter(output, fieldnames=final_columns)
+                    writer = csv.DictWriter(output, fieldnames=final_columns, extrasaction="ignore")
                     writer.writeheader()
                     writer.writerows(processed_data)
 
@@ -1536,7 +1638,7 @@ elif st.session_state.phase == "post_survey":
                 "api_model": CLAUDE_MODEL,
             },
             "pre_survey": st.session_state.get("pre_survey_data",{}),
-            "timestamp": datetime.datetime.now().isoformat(),
+            "timestamp": now_kst_str(),
 
             # 사후설문 데이터
             "post_survey": {
@@ -1593,128 +1695,41 @@ elif st.session_state.phase == "post_survey":
         }
 
         os.makedirs("results", exist_ok=True)
-        fname = f"results/{st.session_state.participant_id}_{st.session_state.get('cell','X')}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        fname = f"results/{st.session_state.participant_id}_{st.session_state.get('cell','X')}_{now_kst().strftime('%Y%m%d_%H%M%S')}.json"
         with open(fname, "w", encoding="utf-8") as f:
             json.dump(result, f, ensure_ascii=False, indent=2)
 
-        # ★ CSV 누적 저장 (실험 흐름순 정렬 및 한글 매핑)
+        # ★ 로컬 CSV 누적 저장 — 구글시트와 동일한 표준 순서(CANONICAL_COLUMNS)로 통일.
+        #    기존 파일이 구버전 헤더면 칼럼명 기준으로 무손실 재작성한다.
         import csv
         csv_path = "results/all_results_korean.csv"
+        flat = _row_dict_from_result(result)
 
-        RAW_MAPPING = {
-            # [1] 시스템 정보
-            "participant_id": "[시스템] 참가자_ID",
-            "timestamp": "[시스템] 참여_일시",
-            "experiment_design.cell": "[시스템] 배정_셀",
-            "experiment_design.group": "[시스템] 실험집단",
-            "experiment_design.task_type": "[시스템] 과제유형",
-            "experiment_design.api_model": "[시스템] 사용_모델",
-            "experiment_design.design": "[시스템] 실험_설계",
-            "experiment_design.fixed_cycles": "[시스템] 고정_대화_턴수",
+        old_rows, old_header = [], []
+        if os.path.exists(csv_path):
+            try:
+                with open(csv_path, "r", newline="", encoding="utf-8-sig") as cf:
+                    rdr = csv.DictReader(cf)
+                    old_header = rdr.fieldnames or []
+                    old_rows = list(rdr)
+            except Exception:
+                old_rows, old_header = [], []
 
-            # [2] 사전 설문
-            "pre_survey.gender": "[사전] 성별",
-            "pre_survey.age_group": "[사전] 연령대",
-            "pre_survey.ebr_mean": "[사전_근거_평균]",
-            "pre_survey.aha_mean": "[사전_AI환각인식_평균]",
-            "pre_survey.oc_mean": "[사전_과신편향_평균]",
-            "pre_survey.emo_mean": "[사전_정서중시_평균]",
-            "pre_survey.psd_mean": "[사전] 거리두기 평균",
-            "pre_survey.psm_mean": "[사전] 현실모니터링 평균",
-            "pre_survey.pcf_mean": "[사전] 반사실적사고 평균",
-            "pre_survey.pih_mean": "[사전] 지적겸손 평균",
-            "pre_survey.llm_halluc": "[사전] LLM환각인식(단일)",
+        # 헤더 = 표준 칼럼 + (flat의 신규 키) + (구헤더에만 있던 키) → 무손실
+        csv_columns = _desired_header(flat, old_header)
+        with open(csv_path, "w", newline="", encoding="utf-8-sig") as cf:
+            writer = csv.DictWriter(cf, fieldnames=csv_columns, extrasaction="ignore")
+            writer.writeheader()
+            for r in old_rows:                                  # 과거 행 보존(칼럼명 기준)
+                writer.writerow({k: r.get(k, "") for k in csv_columns})
+            writer.writerow(flat)                               # 이번 응답 추가
 
-            # [3] 과제 및 개입 시작
-            "algorithm_data.initial_input": "[과제] 최초 주장 내용",
-            "post_survey.confidence.pre": "[실험] 사전 확신도(보조)",
-            "algorithm_data.initial_hi.Hallucination_Index": "[알고리즘] 초기 환각지수(HI)",
-
-            # [4] 사후 설문
-            "post_survey.manipulation_check.bae_mean": "[사후] 소외효과 조작점검 평균",
-            "post_survey.confidence.post": "[실험] 사후 확신도(보조)",
-            "post_survey.metacognition.mc_mean": "[사후] 메타인지(전반) 평균",
-            "post_survey.metacognition.sd_mean": "[사후] 메타인지(거리두기) 평균",
-            "post_survey.metacognition.sm_mean": "[사후] 메타인지(출처모니터링) 평균",
-            "post_survey.metacognition.cf_mean": "[사후] 메타인지(반사실적사고) 평균",
-            "post_survey.metacognition.ih_mean": "[사후] 메타인지(지적겸손) 평균",
-            "post_survey.hallucination_self_report.lr_mean": "[사후] 자기보고 환각(근거부족) 평균",
-            "post_survey.hallucination_self_report.lf_mean": "[사후] 자기보고 환각(출처모호) 평균",
-            "post_survey.hallucination_self_report.ah_mean": "[사후] 자기보고 환각(정서판단) 평균",
-            "post_survey.hallucination_self_report.ic_mean": "[사후] 자기보고 환각(비일관성) 평균",
-            "post_survey.ci_mean": "[사후] 공동창출 의향 평균",
-            "post_survey.ce_mean": "[사후] 공동창출 효과 평균",
-
-            # [5] 최종 결과
-            "post_survey.final_title": "[최종] 결과물 제목",
-            "post_survey.final_reason": "[최종] 판단 이유",
-            "post_survey.reflection": "[최종] 주관적 성찰 기록",
-            "post_survey.creativity.originality": "[결과] 독창성",
-            "post_survey.creativity.usefulness": "[결과] 유용성",
-            "post_survey.creativity.fit": "[결과] 적합성",
-            "post_survey.creativity_index": "[결과] 창의성 종합지수",
-
-            # [6] 분석 지표 및 로그
-            "algorithm_data.hi_change": "[분석] 환각지수 감소량",
-            "post_survey.confidence.change": "[분석] 확신도 변화량(보조)",
-            "algorithm_data.final_hi.Hallucination_Index": "[알고리즘] 최종 환각지수(HI)",
-            "algorithm_data.transcript": "[로그] 대화 전체 기록"
-        }
-
-        COLUMN_ORDER = [
-            "[시스템] 참가자_ID", "[시스템] 참여_일시", "[시스템] 배정_셀", "[시스템] 실험집단", "[시스템] 과제유형", "[시스템] 사용_모델",
-            "[사전] 성별", "[사전] 연령대", "[사전_근거_평균]", "[사전_AI환각인식_평균]", "[사전_과신편향_평균]", "[사전_정서중시_평균]",
-            "[사전] 거리두기 평균", "[사전] 현실모니터링 평균", "[사전] 반사실적사고 평균", "[사전] 지적겸손 평균", "[사전] LLM환각인식(단일)",
-            "[과제] 최초 주장 내용", "[실험] 사전 확신도(보조)", "[알고리즘] 초기 환각지수(HI)",
-            "[사후] 소외효과 조작점검 평균", "[실험] 사후 확신도(보조)", "[사후] 메타인지(전반) 평균", "[사후] 메타인지(거리두기) 평균", "[사후] 메타인지(출처모니터링) 평균", "[사후] 메타인지(반사실적사고) 평균", "[사후] 메타인지(지적겸손) 평균",
-            "[사후] 자기보고 환각(근거부족) 평균", "[사후] 자기보고 환각(출처모호) 평균", "[사후] 자기보고 환각(정서판단) 평균", "[사후] 자기보고 환각(비일관성) 평균",
-            "[사후] 공동창출 의향 평균", "[사후] 공동창출 효과 평균",
-            "[최종] 결과물 제목", "[최종] 판단 이유", "[최종] 주관적 성찰 기록", "[결과] 독창성", "[결과] 유용성", "[결과] 적합성", "[결과] 창의성 종합지수",
-            "[분석] 환각지수 감소량", "[분석] 확신도 변화량(보조)", "[알고리즘] 최종 환각지수(HI)", "[로그] 대화 전체 기록"
-        ]
-
-        def _flatten_and_map(d, prefix=""):
-            items = {}
-            for k, v in d.items():
-                full_path = f"{prefix}{k}" if prefix else k
-                if isinstance(v, dict):
-                    items.update(_flatten_and_map(v, full_path + "."))
-                else:
-                    mapped_key = RAW_MAPPING.get(full_path, RAW_MAPPING.get(full_path.split('.')[-1], full_path))
-                    items[mapped_key] = json.dumps(v, ensure_ascii=False) if isinstance(v, list) else v
-            return items
-
-        flat = _flatten_and_map(result)
-        file_exists = os.path.exists(csv_path)
-        with open(csv_path, "a", newline="", encoding="utf-8-sig") as cf:
-            writer = csv.DictWriter(cf, fieldnames=COLUMN_ORDER, extrasaction='ignore')
-            if not file_exists:
-                writer.writeheader()
-            writer.writerow(flat)
-
-        # ★ Google Sheets 저장 — 개별 문항이 각 칼럼이 되도록(척도별 묶음 순서 유지)
+        # ★ Google Sheets 저장 — 사전설문 포함 전체 문항을 '설문 제시 순서'대로 기록.
+        #    기존 데이터가 구버전 헤더이면 칼럼명 기준으로 무손실 재배치 후 추가한다.
         try:
-            ws = _get_worksheet("results")
-            if ws:
-                full_flat = flatten_result_full(result)
-                existing = ws.get_all_values()
-                has_header = existing and any(cell.strip() for cell in existing[0])
-                if not has_header:
-                    ws.clear()
-                    # result 딕셔너리의 삽입 순서를 그대로 따름 → 각 척도의 문항들이
-                    # 묶인 채 (문항1..문항N, 평균) 순서로 칼럼이 생성됨
-                    gs_columns = list(full_flat.keys())
-                    try:
-                        ws.resize(rows=1000, cols=max(len(gs_columns) + 5, 26))
-                    except Exception:
-                        pass
-                    ws.append_row(gs_columns)
-                else:
-                    gs_columns = existing[0]
-                row = [str(full_flat.get(col, "")) for col in gs_columns]
-                ws.append_row(row)
-        except Exception as e:
-            pass  # Google Sheets 실패해도 로컬 CSV는 이미 저장됨
+            _save_row_to_gsheet(result)
+        except Exception:
+            pass  # Google Sheets 실패해도 로컬 JSON/CSV는 이미 저장됨
 
         st.session_state.saved_result = result
         st.session_state.phase = "done"
