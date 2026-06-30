@@ -1044,6 +1044,8 @@ def render_host_panel():
             format_func=lambda k: f"셀{k}: {CELLS[k]['label']}", key="host_cell")
         if st.button("이 셀로 시작 ⏭️", key="host_start_cell", use_container_width=True):
             info = CELLS[cell_choice]
+            for k in [kk for kk in st.session_state if kk.startswith("t_")]:
+                del st.session_state[k]            # ★ 이전 과제 상태 초기화 (다른 셀 전환 시 잔존 방지)
             st.session_state.participant_id = "ADMIN_" + uuid.uuid4().hex[:6].upper()
             st.session_state.cell = cell_choice
             st.session_state.group = info["group"]
@@ -1084,6 +1086,8 @@ def render_host_panel():
                 st.session_state.phase = "task"
             elif target.startswith("task_c"):
                 cyc = int(target.split("c")[1])
+                for k in [kk for kk in st.session_state if kk.startswith("t_")]:
+                    del st.session_state[k]        # ★ 잔존 위젯/상태 초기화 후 해당 사이클 재구성
                 _setup_task_at_cycle(cyc)
                 st.session_state.phase = "task"
             st.rerun()
