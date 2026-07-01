@@ -1369,7 +1369,7 @@ elif st.session_state.phase == "pre_survey":
         # 포함기준(논문 4.1: 최근 6개월 내 GenAI 사용 경험) 스크리닝 — 설문 PDF 외 유지
         ai_6mo = st.selectbox("최근 6개월 내 생성형 AI(ChatGPT, Claude 등) 사용 경험이 있습니까?", ["예","아니오"])
 
-        st.markdown("#### 다음은 귀하의 일반적인 성향에 대한 질문입니다.")
+        st.markdown("#### 귀하의 일반적인 성향에 대한 질문입니다.")
 
         st.markdown("**다음은 근거 기반 판단 성향에 대한 질문입니다.**")
         ebr1 = likert7("ebr1", "나는 판단 시 근거를 중요하게 고려한다.")
@@ -1400,7 +1400,7 @@ elif st.session_state.phase == "pre_survey":
         emo4 = likert7("emo4", "나는 감정을 통해 배운다.")
         st.write("") # 시각적 분리
 
-        st.markdown("#### 다음은 실험 시작 전 귀하의 현재 상태에 대한 질문입니다.")
+        st.markdown("#### 실험 시작 전 귀하의 현재 상태에 대한 질문입니다.")
 
         st.markdown("**다음은 인지적 거리두기에 대한 질문입니다.**")
         psd1 = likert7("psd1", "나는 내 생각을 제3자의 시각에서 바라볼 수 있다.")
@@ -1504,7 +1504,7 @@ elif st.session_state.phase == "post_survey":
         st.divider()
 
         # ── (연구자 주석) 조작점검 문항 — 참가자에게는 구성개념/목적 비노출
-        st.markdown("#### 다음은 본 실험 후 귀하의 경험에 대한 질문입니다.")
+        st.markdown("#### 본 실험 후 귀하의 경험에 대한 질문입니다.")
         st.markdown("**다음은 시스템에 의한 소외 효과 경험에 대한 질문입니다.**")
         bae1 = likert7("bae1", "이 시스템은 내 생각을 낯설게 바라보게 하였다.")
         bae2 = likert7("bae2", "이 시스템은 나의 판단을 한 발 떨어져서 보게 했다.")
@@ -1525,7 +1525,6 @@ elif st.session_state.phase == "post_survey":
         # ── 환각지수 자기보고
 
         st.markdown("**다음은 확신 대비 근거 부족에 대한 질문입니다.**")
-        #st.markdown("**확신 대비 근거 부족**")
         lr1 = likert7("lr1", "실험하는 동안 나에게 충분한 근거 없이도 결론을 내리는 경우가 있음을 알게 되었다.")
         lr2 = likert7("lr2", "실험하는 동안 내가 근거가 부족해도 확신을 가짐을 알게 되었다.")
         lr3 = likert7("lr3", "실험하는 동안 나의 주장에 대한 근거를 명확히 제시하지 못하는 경우가 있었다.")
@@ -1555,7 +1554,7 @@ elif st.session_state.phase == "post_survey":
         st.write("") # 시각적 분리
 
         st.divider()
-        st.markdown("#### 다음은 실험을 마친 후 귀하의 현재 상태에 대한 질문입니다.")
+        st.markdown("#### 실험을 마친 후 귀하의 현재 상태에 대한 질문입니다.")
 
         # ── 인지적 거리두기 (설문 PDF 기준 4문항)
         st.markdown("**다음은 인지적 거리두기에 대한 질문입니다.**")
@@ -1596,7 +1595,7 @@ elif st.session_state.phase == "post_survey":
         st.divider()
 
         # ── 공동창출 의향
-        st.markdown("#### 다음은 오늘 GenAI 시스템 사용 후 소감입니다.")
+        st.markdown("#### 오늘 GenAI 시스템 사용 후 소감입니다.")
         st.markdown("**다음은 GenAI와의 가치 공동 창출 의향에 대한 질문입니다.**")
         ci1 = likert7("ci1", "나는 GenAI를 활용하여 나의 목적에 맞는 결과를 만들기 위해 적극적으로 상호작용할 의향이 있다.")
         ci2 = likert7("ci2", "나는 GenAI의 작동 방식을 이해하기 위해 지속적으로 시도하고 학습하려 한다.")
