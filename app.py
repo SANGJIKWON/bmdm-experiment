@@ -1362,14 +1362,14 @@ elif st.session_state.phase == "pre_survey":
     st.title("📋 사전 설문")
     st.caption("모든 정보는 익명 처리됩니다.")
     with st.form("pre_form"):
-        st.markdown("#### 1. 기본 정보")
+        st.markdown("#### 기본 정보")
         col1, col2 = st.columns(2)
         gender = col1.selectbox("성별", ["남성","여성","기타","응답 거부"])
         age_group = col2.selectbox("연령대", ["20대","30대","40대","50대 이상"])
         # 포함기준(논문 4.1: 최근 6개월 내 GenAI 사용 경험) 스크리닝 — 설문 PDF 외 유지
         ai_6mo = st.selectbox("최근 6개월 내 생성형 AI(ChatGPT, Claude 등) 사용 경험이 있습니까?", ["예","아니오"])
 
-        st.markdown("#### 2. 다음은 귀하의 일반적인 성향에 대한 질문입니다. (1=전혀 그렇지 않다 / 7=매우 그렇다)")
+        st.markdown("#### 다음은 귀하의 일반적인 성향에 대한 질문입니다. (1=전혀 그렇지 않다 / 7=매우 그렇다)")
 
         st.markdown("**다음은 근거 기반 판단 성향에 대한 질문입니다.**")
         ebr1 = likert7("ebr1", "나는 판단 시 근거를 중요하게 고려한다.")
@@ -1400,7 +1400,7 @@ elif st.session_state.phase == "pre_survey":
         emo4 = likert7("emo4", "나는 감정을 통해 배운다.")
         st.write("") # 시각적 분리
 
-        st.markdown("#### 3. 다음은 실험 시작 전 귀하의 현재 상태에 대한 질문입니다. (1=전혀 그렇지 않다 / 7=매우 그렇다)")
+        st.markdown("#### 다음은 실험 시작 전 귀하의 현재 상태에 대한 질문입니다. (1=전혀 그렇지 않다 / 7=매우 그렇다)")
 
         st.markdown("**다음은 인지적 거리두기에 대한 질문입니다.**")
         psd1 = likert7("psd1", "나는 내 생각을 제3자의 시각에서 바라볼 수 있다.")
@@ -1430,7 +1430,7 @@ elif st.session_state.phase == "pre_survey":
         pih4 = likert7("pih4", "나는 비록 몇몇 부분은 동의하지 않더라도 다른 이의 의견을 귀담아 들으려는 의지가 있다.")
         st.write("") # 시각적 분리
 
-        st.markdown("#### 4. 추가 문항")
+        st.markdown("#### 추가 문항")
         llm_halluc = likert7("llm_halluc", "LLM은 환각이 심하다고 보십니까? (1: 전혀 아니다 ~ 7: 매우 그렇다)")
 
         submitted = st.form_submit_button("다음으로", use_container_width=True, type="primary")
