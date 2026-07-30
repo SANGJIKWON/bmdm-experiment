@@ -4,7 +4,7 @@
 # ★ 2×2 between-subjects factorial design
 #   셀A: BMDM + 분석적 과제  |  셀B: BMDM + 창의적 과제
 #   셀C: 통제 + 분석적 과제  |  셀D: 통제 + 창의적 과제
-#   참가자 1명 = 1개 셀, 1개 과제만 수행 (셀당 최대 30명)
+#   참가자 1명 = 1개 셀, 1개 과제만 수행 (셀당 최대 75명, 최종 제출 완료자 기준)
 #
 # ★ 본 버전 반영 사항
 #   1) 브레히트적 소외 전략 6종 (몰입 차단 추가) / FIXED_CYCLES = 6
@@ -15,6 +15,10 @@
 #      - 사전설문에 메타인지 4개 차원 baseline + LLM 환각 단일문항 추가
 #      - 사후 인지적 거리두기 4문항(sd5 제거), sm3·cf1 문구 PDF 반영
 #   5) 확신도(완벽도) 슬라이더는 보조 탐색지표로 유지
+#   6) 사후설문 과제유형 인식 문항 강조 표시
+#      / 참여종료 버튼 축소·좌측 배치 + "중도 종료" 안내문구 추가
+#      / 셀 정원 75명, 셀 카운트는 사후설문 최종 제출 완료 시에만 +1
+#        (중도 이탈·관리자 세션은 집계되지 않음)
 # ============================================================
 
 import streamlit as st
@@ -30,7 +34,7 @@ CLAUDE_API_KEY = st.secrets.get("ANTHROPIC_API_KEY", os.environ.get("ANTHROPIC_A
 CLAUDE_MODEL   = "claude-haiku-4-5-20251001"
 FIXED_CYCLES   = 6          # ★ 전략 6종에 맞춰 6사이클
 HOST_PASSWORD  = st.secrets.get("HOST_PASSWORD", "bmdm2025admin")
-MAX_PER_CELL   = 30
+MAX_PER_CELL   = 75         # ★ 셀당 정원 75명 (사후설문 최종 제출 완료자 기준)
 
 CELLS = {
     "A": {"group": "experimental", "task": "factual",  "label": "BMDM + 분석적 과제"},
@@ -92,6 +96,10 @@ def _get_worksheet(sheet_name):
 
 # ============================================================
 # 셀 인원 관리 (Google Sheets 우선, 로컬 JSON 폴백)
+#   ★ 카운트 의미: '사후설문 최종 제출을 완료한' 참가자 수.
+#     - 셀 배정 시점에는 카운트를 올리지 않는다 (choose_random_cell).
+#     - 최종 제출 완료 시에만 +1 (increment_cell_count).
+#     → 중도 이탈(참여 종료 버튼·브라우저 이탈)은 집계되지 않는다.
 # ============================================================
 CELL_COUNT_FILE = "cell_counts.json"
 
@@ -125,19 +133,20 @@ def _save_cell_counts(counts):
     with open(CELL_COUNT_FILE, "w") as f:
         json.dump(counts, f)
 
-def assign_random_cell() -> Optional[str]:
-    """빈자리가 있는 셀 중 무작위 배정. 모두 찼으면 None."""
+def choose_random_cell() -> Optional[str]:
+    """완료 인원이 정원(MAX_PER_CELL) 미만인 셀 중 무작위 '선택'만 수행. 모두 찼으면 None.
+    ★ 여기서는 카운트를 증가시키지 않는다. 카운트는 사후설문 최종 제출 시
+      increment_cell_count()로만 +1 되므로 중도 이탈자는 집계되지 않는다."""
     counts = _load_cell_counts()
     available = [k for k, v in counts.items() if v < MAX_PER_CELL]
     if not available:
         return None
-    cell = random.choice(available)
-    counts[cell] += 1
-    _save_cell_counts(counts)
-    return cell
+    return random.choice(available)
 
-def assign_specific_cell(cell_key: str):
-    """관리자용: 특정 셀에 배정 (인원 제한 무시)."""
+def increment_cell_count(cell_key: str):
+    """사후설문 최종 제출 완료 시 해당 셀 카운트 +1 (완료자 기준 집계)."""
+    if cell_key not in CELLS:
+        return
     counts = _load_cell_counts()
     counts[cell_key] = counts.get(cell_key, 0) + 1
     _save_cell_counts(counts)
@@ -1031,6 +1040,7 @@ def render_host_panel():
         # 셀 현황
         st.markdown("---")
         st.markdown("##### 📊 셀 인원 현황")
+        st.caption("※ 사후설문 최종 제출 완료자 기준 (중도 이탈·관리자 세션 미집계)")
         counts = get_cell_status()
         for k, info in CELLS.items():
             cnt = counts.get(k, 0)
@@ -1253,20 +1263,22 @@ if st.session_state.get("host_auth"):
     p = st.session_state.get("phase","intro")
     st.markdown(f'<div style="background:#1a1a1a;border:1px solid #444;border-radius:8px;padding:8px 14px;margin-bottom:12px;font-size:13px;color:#fff;">🔧 <b>관리자</b> — 셀{c} | {p}</div>', unsafe_allow_html=True)
 
-# 참여 종료 — 사이드바 버튼
+# 참여 종료 — 사이드바 버튼 (★ 오클릭 방지: 축소 + 중도 종료 안내문구)
 if st.session_state.get("phase") in ("pre_survey", "task", "post_survey", "consent"):
     with st.sidebar:
         st.markdown("---")
-        if st.button("🚪 참여 종료", key="withdraw_btn", use_container_width=True):
+        if st.button("🚪 참여 종료", key="withdraw_btn"):
             st.session_state.phase = "withdrawn"; st.rerun()
+        st.caption("⚠️ 누르시면 과제가 중도에 종료됩니다.")
 
-# 참여 종료 — 각 페이지 하단 우측 작은 링크
+# 참여 종료 — 각 페이지 하단 '좌측' 작은 버튼 (★ 오클릭 방지: 좌측 배치 + 안내문구)
 def render_withdraw_button(key_suffix=""):
     st.markdown("")
-    col_left, col_right = st.columns([4, 1])
-    with col_right:
+    col_left, col_right = st.columns([1, 3])
+    with col_left:
         if st.button("연구참여 종료", key=f"withdraw_{key_suffix}", type="secondary"):
             st.session_state.phase = "withdrawn"; st.rerun()
+        st.caption("⚠️ 누르시면 과제가 중도에 종료됩니다.")
 
 # ── PHASE 0: 인트로 ──
 if st.session_state.phase == "intro":
@@ -1464,8 +1476,8 @@ elif st.session_state.phase == "pre_survey":
             "llm_halluc": llm_halluc,
         }
 
-        # 무작위 셀 배정
-        cell = assign_random_cell()
+        # 무작위 셀 배정 — ★ 선택만 수행 (카운트는 사후설문 최종 제출 완료 시에만 +1)
+        cell = choose_random_cell()
         if cell is None:
             st.error("모든 실험 셀이 가득 찼습니다. 참여에 감사드립니다.")
             st.stop()
@@ -1490,7 +1502,8 @@ elif st.session_state.phase == "post_survey":
 
     with st.form("post_form"):
 
-        # ── 과제 유형 인식 (참가자가 지각한 과제 성격) ──
+        # ── 과제 유형 인식 (참가자가 지각한 과제 성격) ── ★ 다른 문항과 동일하게 큰 헤더로 강조
+        st.markdown("#### 귀하가 설문한 과제는 다음의 어떤 과제에 해당한다고 생각하십니까?")
         perceived_task = st.radio(
             "귀하가 설문한 과제는 다음의 어떤 과제에 해당한다고 생각하십니까?",
             ["분석적 과제", "창의적 과제"],
@@ -1500,6 +1513,7 @@ elif st.session_state.phase == "post_survey":
             ],
             index=None,
             key="perceived_task",
+            label_visibility="collapsed",
         )
         st.divider()
 
@@ -1743,6 +1757,14 @@ elif st.session_state.phase == "post_survey":
             _save_row_to_gsheet(result)
         except Exception:
             pass  # Google Sheets 실패해도 로컬 JSON/CSV는 이미 저장됨
+
+        # ★ 셀 카운트는 '사후설문 최종 제출 완료' 시에만 +1 (중도 이탈 미집계).
+        #    관리자 테스트 세션(ADMIN_)은 집계에서 제외.
+        if not str(st.session_state.get("participant_id", "")).startswith("ADMIN_"):
+            try:
+                increment_cell_count(st.session_state.get("cell", ""))
+            except Exception:
+                pass
 
         st.session_state.saved_result = result
         st.session_state.phase = "done"
