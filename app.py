@@ -19,8 +19,9 @@
 #      / 참여종료 버튼 축소·좌측 배치 + "중도 종료" 안내문구 추가
 #      / 셀 정원 75명, 셀 카운트는 사후설문 최종 제출 완료 시에만 +1
 #        (중도 이탈·관리자 세션은 집계되지 않음)
-#   7) 과제 화면 UX: 전송 버튼 우측 배치
+#   7) 과제 화면 UX: 전송 버튼 우측 배치 + primary 색상 강조
 #      / 참가자 최초 작성 내용을 대화 최상단에 항상 표시 (본인 작성 내용 누적 확인)
+#      / 참여종료 안내문구 한 줄 표시
 # ============================================================
 
 import streamlit as st
@@ -747,10 +748,10 @@ def run_task_phase():
                     )
 
                 user_resp = st.text_area(f"응답을 입력하세요 ({remaining}회 남음):", height=100)
-                # ★ 전송 버튼 우측 배치
+                # ★ 전송 버튼 우측 배치 + 강조 색상(primary)
                 _sp_send, col_send = st.columns([4, 1])
                 with col_send:
-                    sent = st.form_submit_button("전송", use_container_width=True)
+                    sent = st.form_submit_button("전송", use_container_width=True, type="primary")
 
             if sent and user_resp.strip():
                 cur_mode = st.session_state[prefix+"cur_mode"]
@@ -1288,7 +1289,8 @@ def render_withdraw_button(key_suffix=""):
     with col_left:
         if st.button("연구참여 종료", key=f"withdraw_{key_suffix}", type="secondary"):
             st.session_state.phase = "withdrawn"; st.rerun()
-        st.caption("⚠️ 누르시면 과제가 중도에 종료됩니다.")
+    # 안내문구는 컬럼 밖 전체 폭에 배치 → 줄바꿈 없이 한 줄로 표시
+    st.caption("⚠️ 누르시면 과제가 중도에 종료됩니다.")
 
 # ── PHASE 0: 인트로 ──
 if st.session_state.phase == "intro":
