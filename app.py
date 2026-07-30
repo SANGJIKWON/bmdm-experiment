@@ -19,6 +19,8 @@
 #      / 참여종료 버튼 축소·좌측 배치 + "중도 종료" 안내문구 추가
 #      / 셀 정원 75명, 셀 카운트는 사후설문 최종 제출 완료 시에만 +1
 #        (중도 이탈·관리자 세션은 집계되지 않음)
+#   7) 과제 화면 UX: 전송 버튼 우측 배치
+#      / 참가자 최초 작성 내용을 대화 최상단에 항상 표시 (본인 작성 내용 누적 확인)
 # ============================================================
 
 import streamlit as st
@@ -703,8 +705,13 @@ def run_task_phase():
 
         st.progress(cycle_done/FIXED_CYCLES, text=f"대화 진행 중 ({cycle_done}/{FIXED_CYCLES})")
 
+        # ★ 참가자가 처음 작성한 내용을 대화 최상단에 항상 표시 (본인 작성 내용 누적 확인용)
+        st.markdown("---")
+        with st.chat_message("user"):
+            st.caption("📌 내가 처음 작성한 내용")
+            st.write(st.session_state[prefix+"initial_input"])
+
         if transcript:
-            st.markdown("---")
             for turn in transcript:
                 with st.chat_message("assistant"):
                     for p in turn["assistant_prompts"]:
@@ -740,7 +747,10 @@ def run_task_phase():
                     )
 
                 user_resp = st.text_area(f"응답을 입력하세요 ({remaining}회 남음):", height=100)
-                sent = st.form_submit_button("전송")
+                # ★ 전송 버튼 우측 배치
+                _sp_send, col_send = st.columns([4, 1])
+                with col_send:
+                    sent = st.form_submit_button("전송", use_container_width=True)
 
             if sent and user_resp.strip():
                 cur_mode = st.session_state[prefix+"cur_mode"]
