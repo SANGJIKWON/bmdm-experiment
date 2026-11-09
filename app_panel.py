@@ -11,7 +11,7 @@
 # ★ 2×2 between-subjects factorial design
 #   셀A: BMDM + 분석적 과제  |  셀B: BMDM + 창의적 과제
 #   셀C: 통제 + 분석적 과제  |  셀D: 통제 + 창의적 과제
-#   참가자 1명 = 1개 셀, 1개 과제만 수행 (셀당 최대 75명, 최종 제출 완료자 기준)
+#   참가자 1명 = 1개 셀, 1개 과제만 수행 (셀당 최대 50명, 최종 제출 완료자 기준)
 #
 # ★ 본 버전 반영 사항
 #   1) 브레히트적 소외 전략 6종 (몰입 차단 추가) / FIXED_CYCLES = 6
@@ -24,7 +24,7 @@
 #   5) 확신도(완벽도) 슬라이더는 보조 탐색지표로 유지
 #   6) 사후설문 과제유형 인식 문항 강조 표시
 #      / 참여종료 버튼 축소·좌측 배치 + "중도 종료" 안내문구 추가
-#      / 셀 정원 75명, 셀 카운트는 사후설문 최종 제출 완료 시에만 +1
+#      / 셀 정원 50명(패널판), 셀 카운트는 사후설문 최종 제출 완료 시에만 +1
 #        (중도 이탈·관리자 세션은 집계되지 않음)
 #   7) 과제 화면 UX: 전송 버튼 우측 배치 + primary 색상 강조
 #      / 참가자 최초 작성 내용을 대화 최상단에 항상 표시 (본인 작성 내용 누적 확인)
@@ -34,6 +34,9 @@
 import streamlit as st
 import json, re, copy, random, datetime, os, uuid, glob
 import anthropic
+
+# ★ Streamlit 1.30 이하에서는 set_page_config 가 반드시 첫 Streamlit 명령이어야 한다.
+st.set_page_config(page_title="AI 공동 창작 실험", page_icon="🎭", layout="centered")
 from dataclasses import dataclass, field
 from typing import List, Dict, Tuple, Optional
 
@@ -86,7 +89,7 @@ def get_panel_id_from_url() -> str:
         return str(v).strip()
     except Exception:
         return ""
-MAX_PER_CELL   = 75         # ★ 셀당 정원 75명 (사후설문 최종 제출 완료자 기준)
+MAX_PER_CELL   = 50         # ★ 셀당 정원 50명 (최종 제출 완료자 기준, 4셀 × 50 = 200명)
 
 CELLS = {
     "A": {"group": "experimental", "task": "factual",  "label": "BMDM + 분석적 과제"},
@@ -1428,7 +1431,7 @@ def render_return_block(status: str):
 #   인트로 → 과제(6사이클) → 최종 제출 → 완료(복귀 링크)
 #   중도 종료 → withdrawn(복귀 링크: 아웃) / 정원 마감 → full(복귀 링크: 쿼터 아웃)
 # ============================================================
-st.set_page_config(page_title="AI 공동 창작 실험", page_icon="🎭", layout="centered")
+# (set_page_config 는 파일 상단, import 직후로 이동 — Streamlit 1.30 호환)
 
 def init_session():
     for k, v in {"phase": "intro", "host_auth": False}.items():
@@ -1460,7 +1463,7 @@ if (not st.session_state.get("panel_id")
 if st.session_state.get("phase") in ("task", "final"):
     with st.sidebar:
         st.markdown("---")
-        if st.button("🚪 참여 종료", key="withdraw_btn"):
+        if st.button("🚪 중도 종료", key="withdraw_btn"):
             _withdraw(); st.rerun()
         st.caption("⚠️ 누르시면 과제가 중도에 종료됩니다.")
 
@@ -1469,7 +1472,7 @@ def render_withdraw_button(key_suffix=""):
     st.markdown("")
     col_left, col_right = st.columns([1, 3])
     with col_left:
-        if st.button("연구참여 종료", key=f"withdraw_{key_suffix}", type="secondary"):
+        if st.button("중도 종료", key=f"withdraw_{key_suffix}", type="secondary"):
             _withdraw(); st.rerun()
     st.caption("⚠️ 누르시면 과제가 중도에 종료됩니다.")
 
