@@ -779,15 +779,14 @@ def run_task_phase():
                                        placeholder="자유롭게 작성해주세요...")
             st.markdown("---")
             st.caption(task["confidence_q"])
-            # ★ 기본값 없음 + 필수 입력 (미입력 시 진행 불가)
-            pre_conf = st.number_input("완벽도 (0~100%) — 0~100 사이 숫자를 직접 입력해 주세요 (필수)",
-                                       min_value=0, max_value=100, value=None, step=1,
-                                       placeholder="숫자 입력 (예: 70)", key="pre_conf")  # 보조 탐색지표
+            # ★ 슬라이더 초기값 0 + 필수 조작 (0에서 움직이지 않으면 진행 불가)
+            pre_conf = st.slider("완벽도 (0~100%)", 0, 100, 0, key="pre_conf")  # 보조 탐색지표
+            st.caption("※ 슬라이더를 움직여 값을 선택해 주세요. (필수)")
             submitted = st.form_submit_button("제출 및 AI와 대화 시작", use_container_width=True, type="primary")
         if submitted and not user_input.strip():
             st.warning("주장과 이유를 작성해 주세요.")
-        elif submitted and pre_conf is None:
-            st.warning("완벽도(0~100%)를 입력해 주세요.")
+        elif submitted and pre_conf == 0:
+            st.warning("완벽도 슬라이더를 움직여 값을 선택해 주세요.")
         elif submitted:
             claims = engine.Extract_Claims(user_input)
             claim = claims[0]
@@ -836,7 +835,7 @@ def run_task_phase():
                         st.markdown(p)
                 with st.chat_message("user"):
                     if turn.get("probability_slider") is not None:
-                        st.caption(f"📊 입력한 값: {turn['probability_slider']}%")
+                        st.caption(f"📊 선택한 값: {turn['probability_slider']}%")
                     st.write(turn["user_response"])
 
         if not is_done:
@@ -849,7 +848,7 @@ def run_task_phase():
                 for p in st.session_state[prefix+"cur_prompts"]:
                     st.markdown(p)
                 if needs_conf_slider:
-                    st.markdown("**아래 칸에 0~100 사이 숫자(%)를 직접 입력해 주세요.**")
+                    st.markdown("**아래 슬라이더를 움직여 0~100% 값을 선택해 주세요. (필수)**")
 
             # ★ clear_on_submit=False: 필수값 누락으로 되돌아올 때 작성 중인 응답이 지워지지 않도록 함
             #   (폼·위젯 키에 사이클 번호가 들어 있어 다음 턴에는 빈 칸으로 새로 그려진다)
@@ -861,11 +860,9 @@ def run_task_phase():
                     slider_label = ("이 주장이 옳을 확률 (0~100%)"
                                     if cur_mode == "Probability_Framing"
                                     else "현재 이 주장에 대한 확신 수준 (0~100%)")
-                    # ★ 기본값 없음 + 필수 입력
-                    prob_val = st.number_input(
-                        slider_label + " — 숫자 입력 (필수)",
-                        min_value=0, max_value=100, value=None, step=1,
-                        placeholder="숫자 입력 (예: 70)",
+                    # ★ 슬라이더 초기값 0 + 필수 조작 (0에서 움직이지 않으면 진행 불가)
+                    prob_val = st.slider(
+                        slider_label, 0, 100, 0,
                         key=f"{prefix}prob_{cycle_done}",
                     )
 
@@ -876,8 +873,8 @@ def run_task_phase():
                 with col_send:
                     sent = st.form_submit_button("전송", use_container_width=True, type="primary")
 
-            if sent and needs_conf_slider and prob_val is None:
-                st.warning("0~100% 값을 입력해 주세요.")
+            if sent and needs_conf_slider and not prob_val:
+                st.warning("슬라이더를 움직여 0~100% 값을 선택해 주세요.")
             elif sent and not user_resp.strip():
                 st.warning("응답 내용을 입력해 주세요.")
             elif sent:
@@ -1617,18 +1614,17 @@ elif st.session_state.phase == "final":
     with st.form("final_form"):
         final_title = st.text_input(task["final_label"], key="final_title")
         final_reason = st.text_area("최종 판단 이유", height=100, key="final_reason")
-        # ★ 기본값 없음 + 필수 입력
-        post_conf = st.number_input("최종 결과물이 얼마나 완벽하다고 생각하시나요? (0~100%) — 숫자를 직접 입력해 주세요 (필수)",
-                                    min_value=0, max_value=100, value=None, step=1,
-                                    placeholder="숫자 입력 (예: 70)", key="post_conf")  # 보조 탐색지표
+        # ★ 슬라이더 초기값 0 + 필수 조작 (0에서 움직이지 않으면 진행 불가)
+        post_conf = st.slider("최종 결과물이 얼마나 완벽하다고 생각하시나요? (%)", 0, 100, 0, key="post_conf")  # 보조 탐색지표
+        st.caption("※ 슬라이더를 움직여 값을 선택해 주세요. (필수)")
         submitted = st.form_submit_button("최종 제출 완료", use_container_width=True, type="primary")
     if submitted:
         if not final_title.strip():
             st.warning("최종 결과물(제목 또는 한 줄 요약)을 입력해 주세요.")
         elif not final_reason.strip():
             st.warning("최종 판단 이유를 입력해 주세요.")
-        elif post_conf is None:
-            st.warning("완벽도(0~100%)를 입력해 주세요.")
+        elif post_conf == 0:
+            st.warning("완벽도 슬라이더를 움직여 값을 선택해 주세요.")
         else:
             result = _build_result(STATUS_COMPLETE, post_conf, final_title.strip(), final_reason.strip())
             saved_ok = _persist_result(result)
