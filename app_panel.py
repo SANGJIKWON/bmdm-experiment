@@ -115,41 +115,97 @@ def now_kst_str():
 # Google Sheets 연결 (Streamlit Community Cloud용)
 # ============================================================
 GSHEET_NAME = _secret("GSHEET_NAME", "BMDM_Results")
+# ★ 스프레드시트 ID(주소의 /d/ 와 /edit 사이 문자열). 값이 있으면 이름 대신 ID로 연다.
+#   ID로 열면 Drive API 없이 Sheets API만으로 동작하고, 같은 이름의 파일이 여럿 있어도 헷갈리지 않는다.
+GSHEET_ID   = str(_secret("GSHEET_ID", "1RfDCqp2Aodx_DHwYJcpQXcG8BNDjdAfitoyPF58gXkA")).strip()
 WS_RESULTS  = "panel_results"       # ★ 본판(app.py)의 results 탭과 분리
 WS_COUNTS   = "panel_cell_counts"   # ★ 본판의 cell_counts 탭과 분리
 
+def _gs_err(msg: str):
+    """구글시트 관련 마지막 오류를 세션에 남긴다(관리자 화면에서 확인)."""
+    try:
+        st.session_state["_gs_error"] = msg
+    except Exception:
+        pass
+
 @st.cache_resource
+def _build_gspread_client():
+    """서비스 계정 인증. 실패하면 예외를 던진다(예외는 캐시되지 않아 Secrets 수정 후 바로 재시도됨)."""
+    import gspread
+    from google.oauth2.service_account import Credentials
+    scope = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://spreadsheets.google.com/feeds",
+        "https://www.googleapis.com/auth/drive"
+    ]
+    creds = Credentials.from_service_account_info(
+        dict(st.secrets["gcp_service_account"]), scopes=scope
+    )
+    return gspread.authorize(creds)
+
 def _get_gspread_client():
-    """Google Sheets 클라이언트 초기화 (서비스 계정 인증)."""
+    """Google Sheets 클라이언트 (실패 시 None + 오류 기록)."""
     if not _has_secret("gcp_service_account"):
+        _gs_err("Secrets에 [gcp_service_account] 항목이 없습니다.")
         return None
     try:
-        import gspread
-        from google.oauth2.service_account import Credentials
-        scope = [
-            "https://spreadsheets.google.com/feeds",
-            "https://www.googleapis.com/auth/drive"
-        ]
-        creds = Credentials.from_service_account_info(
-            dict(st.secrets["gcp_service_account"]), scopes=scope
-        )
-        return gspread.authorize(creds)
+        return _build_gspread_client()
     except Exception as e:
+        _gs_err(f"서비스 계정 인증 실패 — {type(e).__name__}: {e}")
         return None
 
-def _get_worksheet(sheet_name):
-    """스프레드시트에서 워크시트를 가져오거나 생성."""
+def _open_spreadsheet():
+    """스프레드시트 열기 (ID 우선, 없으면 이름). 실패 시 None + 오류 기록."""
     client = _get_gspread_client()
     if not client:
         return None
     try:
-        spreadsheet = client.open(GSHEET_NAME)
-        try:
-            return spreadsheet.worksheet(sheet_name)
-        except:
-            return spreadsheet.add_worksheet(title=sheet_name, rows=1000, cols=200)
+        return client.open_by_key(GSHEET_ID) if GSHEET_ID else client.open(GSHEET_NAME)
     except Exception as e:
+        _gs_err(f"스프레드시트 열기 실패({GSHEET_ID or GSHEET_NAME}) — {type(e).__name__}: {e}")
         return None
+
+def _get_worksheet(sheet_name):
+    """스프레드시트에서 워크시트를 가져오거나 생성."""
+    spreadsheet = _open_spreadsheet()
+    if not spreadsheet:
+        return None
+    try:
+        return spreadsheet.worksheet(sheet_name)
+    except Exception:
+        try:
+            return spreadsheet.add_worksheet(title=sheet_name, rows=1000, cols=200)
+        except Exception as e:
+            _gs_err(f"'{sheet_name}' 탭 열기/생성 실패 — {type(e).__name__}: {e}")
+            return None
+
+def gsheet_diagnose() -> Dict:
+    """관리자용 연결 점검: 어느 단계에서 막히는지 그대로 보여 준다."""
+    info = {"ok": False, "service_account": "", "target": GSHEET_ID or GSHEET_NAME,
+            "title": "", "tabs": [], "error": ""}
+    try:
+        info["service_account"] = str(st.secrets["gcp_service_account"].get("client_email", ""))
+    except Exception:
+        pass
+    st.session_state.pop("_gs_error", None)
+    sp = _open_spreadsheet()
+    if not sp:
+        info["error"] = st.session_state.get("_gs_error", "알 수 없는 오류")
+        return info
+    try:
+        info["title"] = sp.title
+        info["tabs"] = [w.title for w in sp.worksheets()]
+        ws = _get_worksheet(WS_RESULTS)
+        if not ws:
+            info["error"] = st.session_state.get("_gs_error", "탭을 열 수 없습니다.")
+            return info
+        ws.get_all_values()          # 읽기 확인
+        ws.resize(rows=max(ws.row_count, 1000))   # 쓰기 권한 확인(내용은 건드리지 않음)
+        info["tabs"] = [w.title for w in sp.worksheets()]
+        info["ok"] = True
+    except Exception as e:
+        info["error"] = f"{type(e).__name__}: {e}"
+    return info
 
 # ============================================================
 # 셀 인원 관리 (Google Sheets 우선, 로컬 JSON 폴백)
@@ -723,9 +779,16 @@ def run_task_phase():
                                        placeholder="자유롭게 작성해주세요...")
             st.markdown("---")
             st.caption(task["confidence_q"])
-            pre_conf = st.slider("완벽도 (0~100%)", 0, 100, 50, key="pre_conf")  # 보조 탐색지표
+            # ★ 기본값 없음 + 필수 입력 (미입력 시 진행 불가)
+            pre_conf = st.number_input("완벽도 (0~100%) — 0~100 사이 숫자를 직접 입력해 주세요 (필수)",
+                                       min_value=0, max_value=100, value=None, step=1,
+                                       placeholder="숫자 입력 (예: 70)", key="pre_conf")  # 보조 탐색지표
             submitted = st.form_submit_button("제출 및 AI와 대화 시작", use_container_width=True, type="primary")
-        if submitted and user_input.strip():
+        if submitted and not user_input.strip():
+            st.warning("주장과 이유를 작성해 주세요.")
+        elif submitted and pre_conf is None:
+            st.warning("완벽도(0~100%)를 입력해 주세요.")
+        elif submitted:
             claims = engine.Extract_Claims(user_input)
             claim = claims[0]
             state = ConversationState()
@@ -773,7 +836,7 @@ def run_task_phase():
                         st.markdown(p)
                 with st.chat_message("user"):
                     if turn.get("probability_slider") is not None:
-                        st.caption(f"📊 선택한 값: {turn['probability_slider']}%")
+                        st.caption(f"📊 입력한 값: {turn['probability_slider']}%")
                     st.write(turn["user_response"])
 
         if not is_done:
@@ -786,9 +849,11 @@ def run_task_phase():
                 for p in st.session_state[prefix+"cur_prompts"]:
                     st.markdown(p)
                 if needs_conf_slider:
-                    st.markdown("**아래 슬라이더로 0~100% 값을 선택해 주세요.**")
+                    st.markdown("**아래 칸에 0~100 사이 숫자(%)를 직접 입력해 주세요.**")
 
-            with st.form(f"chat_{cycle_done}", clear_on_submit=True):
+            # ★ clear_on_submit=False: 필수값 누락으로 되돌아올 때 작성 중인 응답이 지워지지 않도록 함
+            #   (폼·위젯 키에 사이클 번호가 들어 있어 다음 턴에는 빈 칸으로 새로 그려진다)
+            with st.form(f"chat_{cycle_done}", clear_on_submit=False):
                 remaining = FIXED_CYCLES - cycle_done
 
                 prob_val = None
@@ -796,18 +861,26 @@ def run_task_phase():
                     slider_label = ("이 주장이 옳을 확률 (0~100%)"
                                     if cur_mode == "Probability_Framing"
                                     else "현재 이 주장에 대한 확신 수준 (0~100%)")
-                    prob_val = st.slider(
-                        slider_label, 0, 100, 50,
-                        key=f"{prefix}prob_slider",
+                    # ★ 기본값 없음 + 필수 입력
+                    prob_val = st.number_input(
+                        slider_label + " — 숫자 입력 (필수)",
+                        min_value=0, max_value=100, value=None, step=1,
+                        placeholder="숫자 입력 (예: 70)",
+                        key=f"{prefix}prob_{cycle_done}",
                     )
 
-                user_resp = st.text_area(f"응답을 입력하세요 ({remaining}회 남음):", height=100)
+                user_resp = st.text_area(f"응답을 입력하세요 ({remaining}회 남음):", height=100,
+                                         key=f"{prefix}resp_{cycle_done}")
                 # ★ 전송 버튼 우측 배치 + 강조 색상(primary)
                 _sp_send, col_send = st.columns([4, 1])
                 with col_send:
                     sent = st.form_submit_button("전송", use_container_width=True, type="primary")
 
-            if sent and user_resp.strip():
+            if sent and needs_conf_slider and prob_val is None:
+                st.warning("0~100% 값을 입력해 주세요.")
+            elif sent and not user_resp.strip():
+                st.warning("응답 내용을 입력해 주세요.")
+            elif sent:
                 cur_mode = st.session_state[prefix+"cur_mode"]
 
                 # [#1,#3] 측정은 참가자 자유응답 텍스트만 사용. 슬라이더 값은 HI에 주입하지 않음.
@@ -1031,7 +1104,7 @@ def _save_row_to_gsheet(result):
     from gspread.utils import rowcol_to_a1
     ws = _get_worksheet(WS_RESULTS)
     if not ws:
-        return
+        return False
     flat = _row_dict_from_result(result)
     existing = ws.get_all_values()
     has_header = bool(existing) and any(c.strip() for c in existing[0])
@@ -1048,7 +1121,7 @@ def _save_row_to_gsheet(result):
     # 헤더가 이미 표준과 동일 → 단순 추가
     if has_header and old_header == desired:
         ws.append_row(new_row)
-        return
+        return True
 
     # 헤더가 다르거나 없음 → 기존 행을 칼럼명 기준으로 재매핑하여 전체 재기록
     migrated = [desired]
@@ -1061,6 +1134,7 @@ def _save_row_to_gsheet(result):
 
     end = rowcol_to_a1(len(migrated), len(desired))
     ws.update(f"A1:{end}", migrated)
+    return True
 
 # ============================================================
 # 호스트 관리 패널
@@ -1089,6 +1163,18 @@ def render_host_panel():
             cnt = counts.get(k, 0)
             color = "#E24B4A" if cnt >= MAX_PER_CELL else "#639922"
             st.markdown(f"셀{k} [{info['label']}]: <span style='color:{color};font-weight:600'>{cnt}/{MAX_PER_CELL}</span>", unsafe_allow_html=True)
+
+        # ★ 구글시트 연결 점검 (저장이 안 될 때 원인 확인)
+        st.markdown("---")
+        st.markdown("##### 🔌 구글시트 연결 점검")
+        if st.button("연결 점검 실행", key="host_gs_diag", use_container_width=True):
+            d = gsheet_diagnose()
+            st.caption(f"서비스 계정: {d['service_account'] or '(Secrets에 없음)'}")
+            st.caption(f"대상: {d['target']}")
+            if d["ok"]:
+                st.success(f"연결 정상 — '{d['title']}' / 탭: {', '.join(d['tabs'])}")
+            else:
+                st.error(f"연결 실패 — {d['error']}")
 
         # 관리자 셀 직접 선택
         st.markdown("---")
@@ -1360,9 +1446,9 @@ def _persist_result(result: dict):
         writer.writerow(flat)
 
     try:
-        _save_row_to_gsheet(result)
-        return True
-    except Exception:
+        return bool(_save_row_to_gsheet(result))
+    except Exception as e:
+        _gs_err(f"구글시트 행 저장 실패 — {type(e).__name__}: {e}")
         return False
 
 
@@ -1531,11 +1617,18 @@ elif st.session_state.phase == "final":
     with st.form("final_form"):
         final_title = st.text_input(task["final_label"], key="final_title")
         final_reason = st.text_area("최종 판단 이유", height=100, key="final_reason")
-        post_conf = st.slider("최종 결과물이 얼마나 완벽하다고 생각하시나요? (%)", 0, 100, 50, key="post_conf")  # 보조 탐색지표
+        # ★ 기본값 없음 + 필수 입력
+        post_conf = st.number_input("최종 결과물이 얼마나 완벽하다고 생각하시나요? (0~100%) — 숫자를 직접 입력해 주세요 (필수)",
+                                    min_value=0, max_value=100, value=None, step=1,
+                                    placeholder="숫자 입력 (예: 70)", key="post_conf")  # 보조 탐색지표
         submitted = st.form_submit_button("최종 제출 완료", use_container_width=True, type="primary")
     if submitted:
         if not final_title.strip():
             st.warning("최종 결과물(제목 또는 한 줄 요약)을 입력해 주세요.")
+        elif not final_reason.strip():
+            st.warning("최종 판단 이유를 입력해 주세요.")
+        elif post_conf is None:
+            st.warning("완벽도(0~100%)를 입력해 주세요.")
         else:
             result = _build_result(STATUS_COMPLETE, post_conf, final_title.strip(), final_reason.strip())
             saved_ok = _persist_result(result)
@@ -1558,7 +1651,8 @@ elif st.session_state.phase == "done":
     else:
         st.success("과제를 완료해주셔서 진심으로 감사드립니다. 응답이 정상적으로 저장되었습니다.")
         if st.session_state.get("host_auth") and st.session_state.get("gsheet_saved") is False:
-            st.warning("(관리자) 구글시트 저장 실패 — 로컬 JSON/CSV에는 저장되었습니다.")
+            st.warning("(관리자) 구글시트 저장 실패 — 로컬 JSON/CSV에는 저장되었습니다.\n\n"
+                       f"원인: {st.session_state.get('_gs_error', '알 수 없음')}")
     render_return_block(STATUS_COMPLETE)
 
 # ── PHASE 4: 참여 종료(중도 철회) → 업체 복귀(아웃) ──
